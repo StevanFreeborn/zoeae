@@ -3,6 +3,8 @@ mod file;
 use std::path::PathBuf;
 
 use iced::widget::{column, container, pick_list, row, text, text_editor};
+use iced::window;
+use iced::window::icon;
 use iced::{Element, Font, Length, Theme};
 use rfd::FileDialog;
 
@@ -158,6 +160,13 @@ pub fn main() -> iced::Result {
         .settings(iced::Settings {
             default_font: CUSTOM_FONT,
             ..Default::default()
+        })
+        .window(window::Settings {
+            icon: Some(
+                icon::from_file_data(include_bytes!("./images/icon.ico"), None)
+                    .expect("Failed to load icon"),
+            ),
+            ..window::Settings::default()
         })
         .run()
 }
