@@ -7,7 +7,7 @@ pub fn save_file_to_disk(path: PathBuf, text: String) {
     let save_result = write(path, text);
 
     match save_result {
-        Ok(_) => println!("Save file successfully"),
+        Ok(_) => {},
         Err(err) => eprintln!("Error: {}", err),
     }
 }

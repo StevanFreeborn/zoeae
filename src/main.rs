@@ -2,18 +2,23 @@ mod file;
 
 use std::path::PathBuf;
 
+use iced::Element;
+use iced::widget::text_editor::{Binding, KeyPress};
 use iced::widget::{column, container, pick_list, row, text, text_editor};
-use iced::window;
 use iced::window::icon;
-use iced::{Element, Font, Length, Theme};
+use iced::{Font, Length, Theme};
+use iced::{keyboard, window};
 use rfd::FileDialog;
 
 const CUSTOM_FONT: Font = Font::with_name("CaskaydiaCove Nerd Font Mono");
+const MAX_EDITOR_FONT_SIZE: u32 = 80;
+const MIN_EDITOR_FONT_SIZE: u32 = 12;
 
 #[derive(Default)]
 struct State {
     file_path: Option<PathBuf>,
     content: text_editor::Content,
+    editor_font_size: u32,
     selected_file_action: Option<FileAction>,
 }
 
@@ -42,6 +47,8 @@ impl std::fmt::Display for FileAction {
 enum Message {
     Edit(text_editor::Action),
     FileActionSelected(FileAction),
+    IncreaseFont,
+    DecreaseFont,
 }
 
 fn theme(_state: &State) -> Theme {
@@ -49,6 +56,9 @@ fn theme(_state: &State) -> Theme {
 }
 
 fn view(state: &State) -> Element<'_, Message> {
+    // TODO: Expose the zooming functionality
+    // through a menu
+
     let file_menu = pick_list(
         FileAction::ALL,
         state.selected_file_action,
@@ -59,8 +69,52 @@ fn view(state: &State) -> Element<'_, Message> {
     let action_bar = container(row![file_menu]);
 
     let editor = text_editor(&state.content)
+        .size(state.editor_font_size)
         .height(Length::Fill)
-        .on_action(Message::Edit);
+        .on_action(Message::Edit)
+        .key_binding(|key_press: KeyPress| {
+            let s = keyboard::Key::Character("s".into());
+            let o = keyboard::Key::Character("o".into());
+            let minus = keyboard::Key::Character("-".into());
+            let equals = keyboard::Key::Character("=".into());
+
+
+            let is_open = key_press.modifiers.command() && key_press.key == o;
+            let is_save = key_press.modifiers.command() && key_press.key == s;
+            let is_save_as =
+                key_press.modifiers.command() && key_press.modifiers.shift() && key_press.key == s;
+
+            let is_increase_font = key_press.modifiers.command() && key_press.modifiers.shift() && key_press.key == equals;
+            let is_decrease_font = key_press.modifiers.command() && key_press.key == minus;
+            
+            if is_increase_font {
+                return Some(Binding::Custom(Message::IncreaseFont));
+            }
+
+            if is_decrease_font {
+                return Some(Binding::Custom(Message::DecreaseFont));
+            }
+
+            if is_save_as {
+                return Some(Binding::Custom(Message::FileActionSelected(
+                    FileAction::SaveAs,
+                )));
+            }
+
+            if is_save {
+                return Some(Binding::Custom(Message::FileActionSelected(
+                    FileAction::Save,
+                )));
+            }
+
+            if is_open {
+                return Some(Binding::Custom(Message::FileActionSelected(
+                    FileAction::Open,
+                )));
+            }
+
+            text_editor::Binding::from_key_press(key_press)
+        });
 
     let editor_container = container(row![editor]).height(Length::Fill);
 
@@ -102,14 +156,15 @@ fn save_file(path: Option<PathBuf>, text: String) -> Option<PathBuf> {
     }
 }
 
-fn save_file_as(text: String) {
+fn save_file_as(text: String) -> Option<PathBuf> {
     let files = FileDialog::new().set_directory("/").save_file();
 
     match files {
-        Some(path) => file::save_file_to_disk(path, text),
-        None => {
-            println!("No file to save to");
+        Some(path) => {
+            file::save_file_to_disk(path.clone(), text);
+            Some(path)
         }
+        None => None,
     }
 }
 
@@ -130,12 +185,11 @@ fn update(state: &mut State, message: Message) {
         Message::Edit(action) => {
             state.content.perform(action);
         }
-
         Message::FileActionSelected(action) => {
             state.selected_file_action = None;
 
             match action {
-                FileAction::SaveAs => save_file_as(state.content.text()),
+                FileAction::SaveAs => state.file_path = save_file_as(state.content.text()),
                 FileAction::Open => {
                     let (path, content) = open_file();
                     state.content = text_editor::Content::with_text(&content);
@@ -146,11 +200,28 @@ fn update(state: &mut State, message: Message) {
                 }
             }
         }
+        Message::IncreaseFont => {
+            if state.editor_font_size >= MAX_EDITOR_FONT_SIZE {
+                return;
+            }
+
+            state.editor_font_size += 2;
+        },
+        Message::DecreaseFont => {
+            if state.editor_font_size <= MIN_EDITOR_FONT_SIZE {
+                return;
+            }
+
+            state.editor_font_size -= 2;
+        }
     }
 }
 
 fn boot() -> State {
-    State::default()
+    State {
+        editor_font_size: 16,
+        ..Default::default()
+    }
 }
 
 pub fn main() -> iced::Result {
