@@ -1,3 +1,5 @@
+![logo](./src/images/icon.ico)
+
 # Zoeae
 
 ⚠️ Under Construction ⚠️
