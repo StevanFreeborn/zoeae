@@ -3,20 +3,25 @@ mod file;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use iced::Element;
+use iced::padding::bottom;
 use iced::widget::text_editor::{Binding, KeyPress};
-use iced::widget::{button, column, container, pick_list, row, text, text_editor};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_editor};
 use iced::window::icon;
+use iced::{Background, Border, Element, border};
 use iced::{Font, Length, Theme};
 use iced::{keyboard, window};
 use rfd::FileDialog;
-
-use crate::file::load_file_from_disk;
+use uuid::Uuid;
 
 const CUSTOM_FONT: Font = Font::with_name("CaskaydiaCove Nerd Font Mono");
 const DEFAULT_EDITOR_FONT_SIZE: u32 = 16;
 const MAX_EDITOR_FONT_SIZE: u32 = 80;
 const MIN_EDITOR_FONT_SIZE: u32 = 12;
+
+// TODO: Need to handle that when user
+// cancels file action it is causing
+// the currently selected path to be
+// emptied out
 
 // TODO: Need to reconsider the way
 // we are holding on to files. Maybe
@@ -34,30 +39,64 @@ const MIN_EDITOR_FONT_SIZE: u32 = 12;
 
 // TODO: Opening another window
 
+struct File {
+    id: Uuid,
+    content: text_editor::Content,
+    path: Option<PathBuf>,
+}
+
+impl Default for File {
+    fn default() -> Self {
+        File {
+            id: Uuid::new_v4(),
+            content: text_editor::Content::new(),
+            path: None,
+        }
+    }
+}
+
+// TODO: Chat says I need to update
+// the files map to be a map between
+// an id and an index
+// Then files need to be held in;
+// list
+
 #[derive(Default)]
 struct State {
-    files: HashMap<Option<PathBuf>, bool>,
-    file_path: Option<PathBuf>,
-    content: text_editor::Content,
+    files: HashMap<Uuid, File>,
+    current_file: Uuid,
     editor_font_size: u32,
     selected_file_action: Option<FileAction>,
     selected_view_action: Option<ViewAction>,
 }
 
+// fn get_current_file(mut files: &HashMap<Uuid, File>, current_file: &Uuid) -> &mut File {
+//     files
+//         .get_mut(current_file)
+//         .expect("current file id not present in files map")
+// }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileAction {
+    New,
     Save,
     SaveAs,
     Open,
 }
 
 impl FileAction {
-    const ALL: &'static [FileAction] = &[FileAction::Save, FileAction::SaveAs, FileAction::Open];
+    const ALL: &'static [FileAction] = &[
+        FileAction::New,
+        FileAction::Save,
+        FileAction::SaveAs,
+        FileAction::Open,
+    ];
 }
 
 impl std::fmt::Display for FileAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            FileAction::New => write!(f, "New file"),
             FileAction::Save => write!(f, "Save"),
             FileAction::SaveAs => write!(f, "Save as... "),
             FileAction::Open => write!(f, "Open"),
@@ -95,7 +134,7 @@ enum Message {
     Edit(text_editor::Action),
     FileActionSelected(FileAction),
     ViewActionSelected(ViewAction),
-    SwitchTab(PathBuf),
+    SwitchTab(Uuid),
 }
 
 fn theme(_state: &State) -> Theme {
@@ -106,20 +145,45 @@ fn view(state: &State) -> Element<'_, Message> {
     let mut tab_row = row![];
 
     for file in &state.files {
-        if let Some(p) = &file.0 {
-            let file_name = p.file_name()
+        let file_name = if let Some(p) = &file.1.path {
+            p.file_name()
                 .expect("unable to get file name")
                 .to_str()
-                .expect("unable to get file name");
-            
-            let button_text = text(file_name).wrapping(text::Wrapping::None);
-            let button = button(button_text).on_press(Message::SwitchTab(p.clone()));
+                .expect("unable to get file name")
+        } else {
+            "New file"
+        };
 
-            tab_row = tab_row.push(button);
-        }
+        let button_text = text(file_name).wrapping(text::Wrapping::None);
+
+        let button = button(button_text)
+            .style(|theme: &Theme, status| {
+                let base = button::primary(theme, status);
+                let current_file = state.files.get(&state.current_file).expect("problem");
+                let is_focused = current_file.id == file.0.clone();
+                let button_background = if is_focused {
+                    base.background
+                } else {
+                    Some(Background::Color(theme.palette().background))
+                };
+
+                button::Style {
+                    background: button_background,
+                    border: Border {
+                        radius: border::radius(0).top_left(10).top_right(10),
+                        ..base.border
+                    },
+                    ..base
+                }
+            })
+            .on_press(Message::SwitchTab(file.0.clone()));
+
+        tab_row = tab_row.push(button);
     }
 
-    let tabs = container(tab_row);
+    let tabs = scrollable(container(tab_row).padding(bottom(10))).direction(
+        scrollable::Direction::Horizontal(scrollable::Scrollbar::new()),
+    );
 
     let file_menu = pick_list(
         FileAction::ALL,
@@ -137,22 +201,26 @@ fn view(state: &State) -> Element<'_, Message> {
 
     let action_bar = container(row![file_menu, view_menu].spacing(5));
 
-    let editor = text_editor(&state.content)
+    let current_file = state.files.get(&state.current_file).expect("problem");
+
+    let editor = text_editor(&current_file.content)
         .size(state.editor_font_size)
         .height(Length::Fill)
         .on_action(Message::Edit)
         .key_binding(|key_press: KeyPress| {
+            let n = keyboard::Key::Character("n".into());
             let s = keyboard::Key::Character("s".into());
             let o = keyboard::Key::Character("o".into());
             let minus = keyboard::Key::Character("-".into());
             let equals = keyboard::Key::Character("=".into());
             let zero = keyboard::Key::Character("0".into());
 
-            let is_open = key_press.modifiers.command() && key_press.key == o;
+            let is_new = key_press.modifiers.command() && key_press.key == n;
             let is_save = key_press.modifiers.command() && key_press.key == s;
             let is_save_as =
                 key_press.modifiers.command() && key_press.modifiers.shift() && key_press.key == s;
-
+            let is_open = key_press.modifiers.command() && key_press.key == o;
+            
             let is_increase_font = key_press.modifiers.command() && key_press.key == equals;
             let is_decrease_font = key_press.modifiers.command() && key_press.key == minus;
             let is_reset_font = key_press.modifiers.command() && key_press.key == zero;
@@ -193,19 +261,28 @@ fn view(state: &State) -> Element<'_, Message> {
                 )));
             }
 
+            if is_new {
+                return Some(Binding::Custom(Message::FileActionSelected(
+                    FileAction::New,
+                )));
+            }
+
             text_editor::Binding::from_key_press(key_press)
         });
 
     let editor_container = container(row![editor]).height(Length::Fill);
 
-    let cursor_position = state.content.cursor().position;
+    let cursor_position = current_file.content.cursor().position;
+
     let cursor_display_text = format!(
         "Ln {}, Col {}",
         cursor_position.line, cursor_position.column
     );
     let cursor_text = text(cursor_display_text);
 
-    let file_path_display_text = match &state.file_path {
+    let current_file = state.files.get(&state.current_file).expect("problem");
+
+    let file_path_display_text = match &current_file.path {
         Some(path) => path.to_string_lossy().to_string(),
         None => String::new(),
     };
@@ -214,7 +291,7 @@ fn view(state: &State) -> Element<'_, Message> {
 
     let status_bar = container(row![file_path_text, cursor_text].spacing(10));
 
-    container(column![tabs, action_bar, editor_container, status_bar].spacing(10))
+    container(column![tabs, action_bar, editor_container, status_bar])
         .padding(10)
         .into()
 }
@@ -248,44 +325,80 @@ fn save_file_as(text: String) -> Option<PathBuf> {
     }
 }
 
-fn open_file() -> (PathBuf, String) {
+fn open_file() -> (Option<PathBuf>, String) {
     let file = FileDialog::new().set_directory("/").pick_file();
 
     match file {
         Some(path) => {
             let content = file::load_file_from_disk(path.clone());
-            (path, content)
+            (Some(path), content)
         }
-        None => (PathBuf::new(), String::new()),
+        None => (None, String::new()),
     }
 }
 
 fn update(state: &mut State, message: Message) {
     match message {
         Message::Edit(action) => {
-            state.content.perform(action);
+            let current_file = state.files.get_mut(&state.current_file).expect("problem");
+            current_file.content.perform(action);
         }
         Message::FileActionSelected(action) => {
             state.selected_file_action = None;
 
             match action {
                 FileAction::SaveAs => {
-                    let path = save_file_as(state.content.text());
-                    state.file_path = path.clone();
-                    state.files.insert(path, true);
+                    let current_file = state.files.get_mut(&state.current_file).expect("problem");
+                    let path = save_file_as(current_file.content.text());
+                    current_file.path = path;
                 }
                 FileAction::Open => {
                     let (path, content) = open_file();
-                    state.content = text_editor::Content::with_text(&content);
-                    
-                    let path_option = Some(path);
-                    state.file_path = path_option.clone();
-                    state.files.insert(path_option, true);
+
+                    match &path {
+                        Some(opened_path) => {
+                            // TODO: Chat thinks this is stupid
+                            // and I agree. There is probably
+                            // a way to have some sort of map
+                            // between id and paths
+                            for file in state.files.iter_mut() {
+                                match &file.1.path {
+                                    Some(existing_path) => {
+                                        if opened_path == existing_path {
+                                            file.1.content =
+                                                text_editor::Content::with_text(&content);
+                                            state.current_file = file.1.id;
+                                            return;
+                                        }
+                                    }
+                                    None => {}
+                                }
+                            }
+
+                            let opened_file = File {
+                                path: path,
+                                content: text_editor::Content::with_text(&content),
+                                ..Default::default()
+                            };
+                            let opened_file_id = opened_file.id;
+
+                            state.files.insert(opened_file.id, opened_file);
+                            state.current_file = opened_file_id;
+                        }
+                        None => {}
+                    }
                 }
                 FileAction::Save => {
-                    let path = save_file(state.file_path.clone(), state.content.text());
-                    state.file_path = path.clone();
-                    state.files.insert(path, true);
+                    let current_file = state.files.get_mut(&state.current_file).expect("problem");
+                    let path = save_file(current_file.path.clone(), current_file.content.text());
+                    current_file.path = path;
+                }
+                FileAction::New => {
+                    let default_file = File::default();
+                    let default_file_id = default_file.id;
+
+                    state.files.insert(default_file.id, default_file);
+                    state.current_file = default_file_id;
                 }
             }
         }
@@ -310,16 +423,22 @@ fn update(state: &mut State, message: Message) {
                 ViewAction::ResetFont => state.editor_font_size = DEFAULT_EDITOR_FONT_SIZE,
             }
         }
-        Message::SwitchTab(path) => {
-            let file_content = load_file_from_disk(path.clone());
-            state.content = text_editor::Content::with_text(&file_content);
-            state.file_path = Some(path);
+        Message::SwitchTab(file_id) => {
+            state.current_file = file_id;
         }
     }
 }
 
 fn boot() -> State {
+    let mut files: HashMap<Uuid, File> = HashMap::new();
+    let default_file = File::default();
+    let default_file_id = default_file.id;
+
+    files.insert(default_file.id, default_file);
+
     State {
+        files: files,
+        current_file: default_file_id,
         editor_font_size: DEFAULT_EDITOR_FONT_SIZE,
         ..Default::default()
     }
