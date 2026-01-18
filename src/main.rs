@@ -1,6 +1,5 @@
 mod file;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use iced::padding::bottom;
@@ -11,7 +10,6 @@ use iced::{Background, Border, Element, border};
 use iced::{Font, Length, Theme};
 use iced::{keyboard, window};
 use rfd::FileDialog;
-use uuid::Uuid;
 
 const CUSTOM_FONT: Font = Font::with_name("CaskaydiaCove Nerd Font Mono");
 const DEFAULT_EDITOR_FONT_SIZE: u32 = 16;
@@ -40,7 +38,6 @@ const MIN_EDITOR_FONT_SIZE: u32 = 12;
 // TODO: Opening another window
 
 struct File {
-    id: Uuid,
     content: text_editor::Content,
     path: Option<PathBuf>,
 }
@@ -48,7 +45,6 @@ struct File {
 impl Default for File {
     fn default() -> Self {
         File {
-            id: Uuid::new_v4(),
             content: text_editor::Content::new(),
             path: None,
         }
@@ -63,8 +59,8 @@ impl Default for File {
 
 #[derive(Default)]
 struct State {
-    files: HashMap<Uuid, File>,
-    current_file: Uuid,
+    files: Vec<File>,
+    current_file: usize,
     editor_font_size: u32,
     selected_file_action: Option<FileAction>,
     selected_view_action: Option<ViewAction>,
@@ -82,6 +78,7 @@ enum FileAction {
     Save,
     SaveAs,
     Open,
+    Close(Option<usize>),
 }
 
 impl FileAction {
@@ -90,6 +87,7 @@ impl FileAction {
         FileAction::Save,
         FileAction::SaveAs,
         FileAction::Open,
+        FileAction::Close(None),
     ];
 }
 
@@ -100,31 +98,32 @@ impl std::fmt::Display for FileAction {
             FileAction::Save => write!(f, "Save"),
             FileAction::SaveAs => write!(f, "Save as... "),
             FileAction::Open => write!(f, "Open"),
+            FileAction::Close(_) => write!(f, "Close"),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewAction {
-    IncreaseFont,
-    DecreaseFont,
-    ResetFont,
+    Increase,
+    Decrease,
+    Reset,
 }
 
 impl ViewAction {
     const ALL: &'static [ViewAction] = &[
-        ViewAction::IncreaseFont,
-        ViewAction::DecreaseFont,
-        ViewAction::ResetFont,
+        ViewAction::Increase,
+        ViewAction::Decrease,
+        ViewAction::Reset,
     ];
 }
 
 impl std::fmt::Display for ViewAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ViewAction::DecreaseFont => write!(f, "Decrease font"),
-            ViewAction::IncreaseFont => write!(f, "Increase font"),
-            ViewAction::ResetFont => write!(f, "Reset font"),
+            ViewAction::Decrease => write!(f, "Decrease font"),
+            ViewAction::Increase => write!(f, "Increase font"),
+            ViewAction::Reset => write!(f, "Reset font"),
         }
     }
 }
@@ -134,7 +133,7 @@ enum Message {
     Edit(text_editor::Action),
     FileActionSelected(FileAction),
     ViewActionSelected(ViewAction),
-    SwitchTab(Uuid),
+    SwitchTab(usize),
 }
 
 fn theme(_state: &State) -> Theme {
@@ -144,8 +143,8 @@ fn theme(_state: &State) -> Theme {
 fn view(state: &State) -> Element<'_, Message> {
     let mut tab_row = row![];
 
-    for file in &state.files {
-        let file_name = if let Some(p) = &file.1.path {
+    for (file_index, file) in state.files.iter().enumerate() {
+        let file_name = if let Some(p) = &file.path {
             p.file_name()
                 .expect("unable to get file name")
                 .to_str()
@@ -154,13 +153,15 @@ fn view(state: &State) -> Element<'_, Message> {
             "New file"
         };
 
-        let button_text = text(file_name).wrapping(text::Wrapping::None);
+        let tab_button_text = text(file_name).wrapping(text::Wrapping::None);
+        let delete_button = button(text("x")).on_press(Message::FileActionSelected(
+            FileAction::Close(Some(file_index)),
+        ));
 
-        let button = button(button_text)
-            .style(|theme: &Theme, status| {
+        let tab_button = button(row![tab_button_text, delete_button])
+            .style(move |theme: &Theme, status| {
                 let base = button::primary(theme, status);
-                let current_file = state.files.get(&state.current_file).expect("problem");
-                let is_focused = current_file.id == file.0.clone();
+                let is_focused = state.current_file == file_index;
                 let button_background = if is_focused {
                     base.background
                 } else {
@@ -176,9 +177,9 @@ fn view(state: &State) -> Element<'_, Message> {
                     ..base
                 }
             })
-            .on_press(Message::SwitchTab(file.0.clone()));
+            .on_press(Message::SwitchTab(file_index));
 
-        tab_row = tab_row.push(button);
+        tab_row = tab_row.push(tab_button);
     }
 
     let tabs = scrollable(container(tab_row).padding(bottom(10))).direction(
@@ -201,7 +202,7 @@ fn view(state: &State) -> Element<'_, Message> {
 
     let action_bar = container(row![file_menu, view_menu].spacing(5));
 
-    let current_file = state.files.get(&state.current_file).expect("problem");
+    let current_file = &state.files[state.current_file];
 
     let editor = text_editor(&current_file.content)
         .size(state.editor_font_size)
@@ -220,26 +221,26 @@ fn view(state: &State) -> Element<'_, Message> {
             let is_save_as =
                 key_press.modifiers.command() && key_press.modifiers.shift() && key_press.key == s;
             let is_open = key_press.modifiers.command() && key_press.key == o;
-            
+
             let is_increase_font = key_press.modifiers.command() && key_press.key == equals;
             let is_decrease_font = key_press.modifiers.command() && key_press.key == minus;
             let is_reset_font = key_press.modifiers.command() && key_press.key == zero;
 
             if is_reset_font {
                 return Some(Binding::Custom(Message::ViewActionSelected(
-                    ViewAction::ResetFont,
+                    ViewAction::Reset,
                 )));
             }
 
             if is_increase_font {
                 return Some(Binding::Custom(Message::ViewActionSelected(
-                    ViewAction::IncreaseFont,
+                    ViewAction::Increase,
                 )));
             }
 
             if is_decrease_font {
                 return Some(Binding::Custom(Message::ViewActionSelected(
-                    ViewAction::DecreaseFont,
+                    ViewAction::Decrease,
                 )));
             }
 
@@ -280,8 +281,6 @@ fn view(state: &State) -> Element<'_, Message> {
     );
     let cursor_text = text(cursor_display_text);
 
-    let current_file = state.files.get(&state.current_file).expect("problem");
-
     let file_path_display_text = match &current_file.path {
         Some(path) => path.to_string_lossy().to_string(),
         None => String::new(),
@@ -299,7 +298,7 @@ fn view(state: &State) -> Element<'_, Message> {
 fn save_file(path: Option<PathBuf>, text: String) -> Option<PathBuf> {
     let mut save_path = path.clone();
 
-    if path == None {
+    if path.is_none() {
         save_path = FileDialog::new().set_directory("/").save_file();
     }
 
@@ -340,7 +339,7 @@ fn open_file() -> (Option<PathBuf>, String) {
 fn update(state: &mut State, message: Message) {
     match message {
         Message::Edit(action) => {
-            let current_file = state.files.get_mut(&state.current_file).expect("problem");
+            let current_file = &mut state.files[state.current_file];
             current_file.content.perform(action);
         }
         Message::FileActionSelected(action) => {
@@ -348,57 +347,51 @@ fn update(state: &mut State, message: Message) {
 
             match action {
                 FileAction::SaveAs => {
-                    let current_file = state.files.get_mut(&state.current_file).expect("problem");
+                    let current_file = &mut state.files[state.current_file];
                     let path = save_file_as(current_file.content.text());
                     current_file.path = path;
                 }
                 FileAction::Open => {
                     let (path, content) = open_file();
 
-                    match &path {
-                        Some(opened_path) => {
-                            // TODO: Chat thinks this is stupid
-                            // and I agree. There is probably
-                            // a way to have some sort of map
-                            // between id and paths
-                            for file in state.files.iter_mut() {
-                                match &file.1.path {
-                                    Some(existing_path) => {
-                                        if opened_path == existing_path {
-                                            file.1.content =
-                                                text_editor::Content::with_text(&content);
-                                            state.current_file = file.1.id;
-                                            return;
-                                        }
-                                    }
-                                    None => {}
-                                }
+                    if let Some(opened_path) = &path {
+                        for (file_index, file) in state.files.iter_mut().enumerate() {
+                            if let Some(existing_path) = &file.path
+                                && opened_path == existing_path
+                            {
+                                file.content = text_editor::Content::with_text(&content);
+                                state.current_file = file_index;
+                                return;
                             }
-
-                            let opened_file = File {
-                                path: path,
-                                content: text_editor::Content::with_text(&content),
-                                ..Default::default()
-                            };
-                            let opened_file_id = opened_file.id;
-
-                            state.files.insert(opened_file.id, opened_file);
-                            state.current_file = opened_file_id;
                         }
-                        None => {}
+
+                        let opened_file = File {
+                            path,
+                            content: text_editor::Content::with_text(&content),
+                        };
+
+                        state.files.push(opened_file);
+                        state.current_file = state.files.len() - 1;
                     }
                 }
                 FileAction::Save => {
-                    let current_file = state.files.get_mut(&state.current_file).expect("problem");
+                    let current_file = &mut state.files[state.current_file];
                     let path = save_file(current_file.path.clone(), current_file.content.text());
                     current_file.path = path;
                 }
                 FileAction::New => {
                     let default_file = File::default();
-                    let default_file_id = default_file.id;
 
-                    state.files.insert(default_file.id, default_file);
-                    state.current_file = default_file_id;
+                    state.files.push(default_file);
+                    state.current_file = state.files.len() - 1;
+                }
+                FileAction::Close(idx) => {
+                    let idx_to_close = match idx {
+                        Some(i) => i,
+                        None => state.current_file,
+                    };
+
+                    state.files.remove(idx_to_close);
                 }
             }
         }
@@ -406,21 +399,21 @@ fn update(state: &mut State, message: Message) {
             state.selected_view_action = None;
 
             match action {
-                ViewAction::IncreaseFont => {
+                ViewAction::Increase => {
                     if state.editor_font_size >= MAX_EDITOR_FONT_SIZE {
                         return;
                     }
 
                     state.editor_font_size += 2;
                 }
-                ViewAction::DecreaseFont => {
+                ViewAction::Decrease => {
                     if state.editor_font_size <= MIN_EDITOR_FONT_SIZE {
                         return;
                     }
 
                     state.editor_font_size -= 2;
                 }
-                ViewAction::ResetFont => state.editor_font_size = DEFAULT_EDITOR_FONT_SIZE,
+                ViewAction::Reset => state.editor_font_size = DEFAULT_EDITOR_FONT_SIZE,
             }
         }
         Message::SwitchTab(file_id) => {
@@ -430,15 +423,13 @@ fn update(state: &mut State, message: Message) {
 }
 
 fn boot() -> State {
-    let mut files: HashMap<Uuid, File> = HashMap::new();
     let default_file = File::default();
-    let default_file_id = default_file.id;
 
-    files.insert(default_file.id, default_file);
+    let files = vec![default_file];
 
     State {
-        files: files,
-        current_file: default_file_id,
+        files,
+        current_file: 0,
         editor_font_size: DEFAULT_EDITOR_FONT_SIZE,
         ..Default::default()
     }
