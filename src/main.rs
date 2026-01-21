@@ -4,9 +4,11 @@ use std::path::PathBuf;
 
 use iced::padding::bottom;
 use iced::widget::text_editor::{Binding, KeyPress};
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_editor};
+use iced::widget::{
+    button, column, container, markdown, pick_list, row, scrollable, text, text_editor,
+};
 use iced::window::icon;
-use iced::{Background, Border, Element, border};
+use iced::{Background, Border, Element, Task, border};
 use iced::{Font, Length, Theme};
 use iced::{keyboard, window};
 use rfd::FileDialog;
@@ -36,10 +38,10 @@ const MIN_EDITOR_FONT_SIZE: u32 = 12;
 // TODO: Handle creating new files
 
 // TODO: Opening another window
-
 struct File {
     content: text_editor::Content,
     path: Option<PathBuf>,
+    markdown: Vec<markdown::Item>,
 }
 
 impl Default for File {
@@ -47,18 +49,21 @@ impl Default for File {
         File {
             content: text_editor::Content::new(),
             path: None,
+            markdown: Vec::new(),
         }
     }
 }
 
-// TODO: Chat says I need to update
-// the files map to be a map between
-// an id and an index
-// Then files need to be held in;
-// list
+#[derive(Default)]
+enum Mode {
+    #[default]
+    Edit,
+    Preview,
+}
 
 #[derive(Default)]
 struct State {
+    mode: Mode,
     files: Vec<File>,
     current_file: usize,
     editor_font_size: u32,
@@ -108,6 +113,7 @@ enum ViewAction {
     Increase,
     Decrease,
     Reset,
+    TogglePreview,
 }
 
 impl ViewAction {
@@ -115,6 +121,7 @@ impl ViewAction {
         ViewAction::Increase,
         ViewAction::Decrease,
         ViewAction::Reset,
+        ViewAction::TogglePreview,
     ];
 }
 
@@ -124,6 +131,7 @@ impl std::fmt::Display for ViewAction {
             ViewAction::Decrease => write!(f, "Decrease font"),
             ViewAction::Increase => write!(f, "Increase font"),
             ViewAction::Reset => write!(f, "Reset font"),
+            ViewAction::TogglePreview => write!(f, "Preview"),
         }
     }
 }
@@ -134,8 +142,14 @@ enum Message {
     FileActionSelected(FileAction),
     ViewActionSelected(ViewAction),
     SwitchTab(usize),
+    LinkClicked(String),
 }
 
+// TODO: Can we at least make
+// theme configurable
+// and then maybe even define
+// complete custom and/or use
+// existing as starter
 fn theme(_state: &State) -> Theme {
     Theme::Dark
 }
@@ -212,6 +226,7 @@ fn view(state: &State) -> Element<'_, Message> {
             let n = keyboard::Key::Character("n".into());
             let s = keyboard::Key::Character("s".into());
             let o = keyboard::Key::Character("o".into());
+            let w = keyboard::Key::Character("w".into());
             let minus = keyboard::Key::Character("-".into());
             let equals = keyboard::Key::Character("=".into());
             let zero = keyboard::Key::Character("0".into());
@@ -221,10 +236,17 @@ fn view(state: &State) -> Element<'_, Message> {
             let is_save_as =
                 key_press.modifiers.command() && key_press.modifiers.shift() && key_press.key == s;
             let is_open = key_press.modifiers.command() && key_press.key == o;
+            let is_close = key_press.modifiers.command() && key_press.key == w;
 
             let is_increase_font = key_press.modifiers.command() && key_press.key == equals;
             let is_decrease_font = key_press.modifiers.command() && key_press.key == minus;
             let is_reset_font = key_press.modifiers.command() && key_press.key == zero;
+
+            if is_close {
+                return Some(Binding::Custom(Message::FileActionSelected(
+                    FileAction::Close(Some(state.current_file)),
+                )));
+            }
 
             if is_reset_font {
                 return Some(Binding::Custom(Message::ViewActionSelected(
@@ -271,6 +293,14 @@ fn view(state: &State) -> Element<'_, Message> {
             text_editor::Binding::from_key_press(key_press)
         });
 
+    let mut markdown_styles: markdown::Style = Theme::Dark.into();
+    markdown_styles.font = CUSTOM_FONT;
+    
+    let markdown_settings = markdown::Settings::with_text_size(state.editor_font_size, markdown_styles);
+    let markdown_preview =
+        markdown::view(&current_file.markdown, markdown_settings).map(Message::LinkClicked);
+
+    let preview_container = container(row![markdown_preview]).height(Length::Fill);
     let editor_container = container(row![editor]).height(Length::Fill);
 
     let cursor_position = current_file.content.cursor().position;
@@ -290,7 +320,12 @@ fn view(state: &State) -> Element<'_, Message> {
 
     let status_bar = container(row![file_path_text, cursor_text].spacing(10));
 
-    container(column![tabs, action_bar, editor_container, status_bar])
+    let main = match state.mode {
+        Mode::Edit => editor_container,
+        Mode::Preview => preview_container,
+    };
+
+    container(column![tabs, action_bar, main, status_bar])
         .padding(10)
         .into()
 }
@@ -336,11 +371,13 @@ fn open_file() -> (Option<PathBuf>, String) {
     }
 }
 
-fn update(state: &mut State, message: Message) {
+fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
         Message::Edit(action) => {
+            // TODO: Probably shouldn't parse every time we edited
             let current_file = &mut state.files[state.current_file];
             current_file.content.perform(action);
+            current_file.markdown = markdown::parse(&current_file.content.text()).collect();
         }
         Message::FileActionSelected(action) => {
             state.selected_file_action = None;
@@ -361,13 +398,14 @@ fn update(state: &mut State, message: Message) {
                             {
                                 file.content = text_editor::Content::with_text(&content);
                                 state.current_file = file_index;
-                                return;
+                                return Task::none();
                             }
                         }
 
                         let opened_file = File {
                             path,
                             content: text_editor::Content::with_text(&content),
+                            markdown: markdown::parse(&content).collect(),
                         };
 
                         state.files.push(opened_file);
@@ -391,6 +429,17 @@ fn update(state: &mut State, message: Message) {
                         None => state.current_file,
                     };
 
+                    if state.files.len() == 1 {
+                        return iced::exit();
+                    }
+
+                    if state.files.len() - 1 == idx_to_close {
+                        state.current_file = state.files.len() - 2;
+                        state.files.remove(idx_to_close);
+                        return Task::none();
+                    }
+
+                    state.current_file -= 1;
                     state.files.remove(idx_to_close);
                 }
             }
@@ -401,25 +450,39 @@ fn update(state: &mut State, message: Message) {
             match action {
                 ViewAction::Increase => {
                     if state.editor_font_size >= MAX_EDITOR_FONT_SIZE {
-                        return;
+                        return Task::none();
                     }
 
                     state.editor_font_size += 2;
                 }
                 ViewAction::Decrease => {
                     if state.editor_font_size <= MIN_EDITOR_FONT_SIZE {
-                        return;
+                        return Task::none();
                     }
 
                     state.editor_font_size -= 2;
                 }
-                ViewAction::Reset => state.editor_font_size = DEFAULT_EDITOR_FONT_SIZE,
+                ViewAction::Reset => {
+                    state.editor_font_size = DEFAULT_EDITOR_FONT_SIZE;
+                }
+                // TODO: Carry previous mode when toggling
+                // so that if we already in preview we can
+                // just put the user back where they were
+                ViewAction::TogglePreview => match state.mode {
+                    Mode::Edit => state.mode = Mode::Preview,
+                    Mode::Preview => state.mode = Mode::Edit,
+                },
             }
         }
         Message::SwitchTab(file_id) => {
             state.current_file = file_id;
         }
+        Message::LinkClicked(link) => {
+            print!("Link clicked: {}", link);
+        }
     }
+
+    Task::none()
 }
 
 fn boot() -> State {

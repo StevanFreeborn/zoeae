@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iced = { version = "0.14.0", features = ["image"] }
+iced = { version = "0.14.0", features = ["image", "markdown", "highlighter"] }
 rfd = "0.17.1"
 uuid = { version = "1.19.0", features = ["v4"] }
