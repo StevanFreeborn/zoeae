@@ -2,13 +2,13 @@ mod file;
 
 use std::path::PathBuf;
 
+use iced::keyboard::{Key, Modifiers};
 use iced::padding::bottom;
-use iced::widget::text_editor::{Binding, KeyPress};
 use iced::widget::{
     button, column, container, markdown, pick_list, row, scrollable, text, text_editor,
 };
 use iced::window::icon;
-use iced::{Background, Border, Element, Task, border};
+use iced::{Background, Border, Element, Subscription, Task, border, event};
 use iced::{Font, Length, Theme};
 use iced::{keyboard, window};
 use rfd::FileDialog;
@@ -18,26 +18,6 @@ const DEFAULT_EDITOR_FONT_SIZE: u32 = 16;
 const MAX_EDITOR_FONT_SIZE: u32 = 80;
 const MIN_EDITOR_FONT_SIZE: u32 = 12;
 
-// TODO: Need to handle that when user
-// cancels file action it is causing
-// the currently selected path to be
-// emptied out
-
-// TODO: Need to reconsider the way
-// we are holding on to files. Maybe
-// vec is not best
-
-// TODO: Need to handle having more tabs
-// then can be displayed in the container
-// given it's current width
-
-// TODO: We need to style the button tab
-// according to which is currently focused
-// in the editor
-
-// TODO: Handle creating new files
-
-// TODO: Opening another window
 struct File {
     content: text_editor::Content,
     path: Option<PathBuf>,
@@ -70,12 +50,6 @@ struct State {
     selected_file_action: Option<FileAction>,
     selected_view_action: Option<ViewAction>,
 }
-
-// fn get_current_file(mut files: &HashMap<Uuid, File>, current_file: &Uuid) -> &mut File {
-//     files
-//         .get_mut(current_file)
-//         .expect("current file id not present in files map")
-// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileAction {
@@ -131,7 +105,7 @@ impl std::fmt::Display for ViewAction {
             ViewAction::Decrease => write!(f, "Decrease font"),
             ViewAction::Increase => write!(f, "Increase font"),
             ViewAction::Reset => write!(f, "Reset font"),
-            ViewAction::TogglePreview => write!(f, "Preview"),
+            ViewAction::TogglePreview => write!(f, "Toggle preview"),
         }
     }
 }
@@ -221,82 +195,14 @@ fn view(state: &State) -> Element<'_, Message> {
     let editor = text_editor(&current_file.content)
         .size(state.editor_font_size)
         .height(Length::Fill)
-        .on_action(Message::Edit)
-        .key_binding(|key_press: KeyPress| {
-            let n = keyboard::Key::Character("n".into());
-            let s = keyboard::Key::Character("s".into());
-            let o = keyboard::Key::Character("o".into());
-            let w = keyboard::Key::Character("w".into());
-            let minus = keyboard::Key::Character("-".into());
-            let equals = keyboard::Key::Character("=".into());
-            let zero = keyboard::Key::Character("0".into());
-
-            let is_new = key_press.modifiers.command() && key_press.key == n;
-            let is_save = key_press.modifiers.command() && key_press.key == s;
-            let is_save_as =
-                key_press.modifiers.command() && key_press.modifiers.shift() && key_press.key == s;
-            let is_open = key_press.modifiers.command() && key_press.key == o;
-            let is_close = key_press.modifiers.command() && key_press.key == w;
-
-            let is_increase_font = key_press.modifiers.command() && key_press.key == equals;
-            let is_decrease_font = key_press.modifiers.command() && key_press.key == minus;
-            let is_reset_font = key_press.modifiers.command() && key_press.key == zero;
-
-            if is_close {
-                return Some(Binding::Custom(Message::FileActionSelected(
-                    FileAction::Close(Some(state.current_file)),
-                )));
-            }
-
-            if is_reset_font {
-                return Some(Binding::Custom(Message::ViewActionSelected(
-                    ViewAction::Reset,
-                )));
-            }
-
-            if is_increase_font {
-                return Some(Binding::Custom(Message::ViewActionSelected(
-                    ViewAction::Increase,
-                )));
-            }
-
-            if is_decrease_font {
-                return Some(Binding::Custom(Message::ViewActionSelected(
-                    ViewAction::Decrease,
-                )));
-            }
-
-            if is_save_as {
-                return Some(Binding::Custom(Message::FileActionSelected(
-                    FileAction::SaveAs,
-                )));
-            }
-
-            if is_save {
-                return Some(Binding::Custom(Message::FileActionSelected(
-                    FileAction::Save,
-                )));
-            }
-
-            if is_open {
-                return Some(Binding::Custom(Message::FileActionSelected(
-                    FileAction::Open,
-                )));
-            }
-
-            if is_new {
-                return Some(Binding::Custom(Message::FileActionSelected(
-                    FileAction::New,
-                )));
-            }
-
-            text_editor::Binding::from_key_press(key_press)
-        });
+        .on_action(Message::Edit);
 
     let mut markdown_styles: markdown::Style = Theme::Dark.into();
     markdown_styles.font = CUSTOM_FONT;
-    
-    let markdown_settings = markdown::Settings::with_text_size(state.editor_font_size, markdown_styles);
+
+    let markdown_settings =
+        markdown::Settings::with_text_size(state.editor_font_size, markdown_styles);
+
     let markdown_preview =
         markdown::view(&current_file.markdown, markdown_settings).map(Message::LinkClicked);
 
@@ -360,6 +266,7 @@ fn save_file_as(text: String) -> Option<PathBuf> {
 }
 
 fn open_file() -> (Option<PathBuf>, String) {
+    // TODO: Allow opening multiple files
     let file = FileDialog::new().set_directory("/").pick_file();
 
     match file {
@@ -374,7 +281,6 @@ fn open_file() -> (Option<PathBuf>, String) {
 fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
         Message::Edit(action) => {
-            // TODO: Probably shouldn't parse every time we edited
             let current_file = &mut state.files[state.current_file];
             current_file.content.perform(action);
             current_file.markdown = markdown::parse(&current_file.content.text()).collect();
@@ -384,9 +290,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
 
             match action {
                 FileAction::SaveAs => {
+                    println!("We are here!");
                     let current_file = &mut state.files[state.current_file];
                     let path = save_file_as(current_file.content.text());
-                    current_file.path = path;
+                    
+                    if path.is_some() {
+                        current_file.path = path;
+                    }
                 }
                 FileAction::Open => {
                     let (path, content) = open_file();
@@ -485,6 +395,84 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
     Task::none()
 }
 
+struct Keybinding {
+    key: &'static str,
+    modifiers: Modifiers,
+    message: Message,
+}
+
+impl Keybinding {
+    fn should_handle(&self, key_pressed: &Key, modifiers: &Modifiers) -> bool {
+        let key = keyboard::Key::Character(self.key.into());
+        modifiers.contains(self.modifiers) && key_pressed == &key
+    }
+
+    const ALL: &'static [Keybinding] = &[
+        Keybinding {
+            key: "o",
+            modifiers: Modifiers::CTRL,
+            message: Message::FileActionSelected(FileAction::Open),
+        },
+        Keybinding {
+            key: "n",
+            modifiers: Modifiers::CTRL,
+            message: Message::FileActionSelected(FileAction::New),
+        },
+        Keybinding {
+            key: "s",
+            modifiers: Modifiers::CTRL.union(Modifiers::SHIFT),
+            message: Message::FileActionSelected(FileAction::SaveAs),
+        },
+        Keybinding {
+            key: "s",
+            modifiers: Modifiers::CTRL,
+            message: Message::FileActionSelected(FileAction::Save),
+        },
+        Keybinding {
+            key: "w",
+            modifiers: Modifiers::CTRL,
+            message: Message::FileActionSelected(FileAction::Close(None)),
+        },
+        Keybinding {
+            key: "p",
+            modifiers: Modifiers::CTRL,
+            message: Message::ViewActionSelected(ViewAction::TogglePreview),
+        },
+        Keybinding {
+            key: "=",
+            modifiers: Modifiers::CTRL,
+            message: Message::ViewActionSelected(ViewAction::Increase),
+        },
+        Keybinding {
+            key: "-",
+            modifiers: Modifiers::CTRL,
+            message: Message::ViewActionSelected(ViewAction::Decrease),
+        },
+        Keybinding {
+            key: "0",
+            modifiers: Modifiers::CTRL,
+            message: Message::ViewActionSelected(ViewAction::Reset),
+        },
+    ];
+}
+
+fn subscription(_state: &State) -> Subscription<Message> {
+    event::listen_with(|e, _status, _win| -> Option<Message> {
+        match e {
+            iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                for vb in Keybinding::ALL {
+                    if vb.should_handle(&key, &modifiers) {
+                        return Some(vb.message.clone());
+                    }
+                }
+
+                None
+            }
+            _ => None,
+        }
+    })
+}
+
 fn boot() -> State {
     let default_file = File::default();
 
@@ -500,6 +488,7 @@ fn boot() -> State {
 
 pub fn main() -> iced::Result {
     iced::application(boot, update, view)
+        .subscription(subscription)
         .font(include_bytes!("./fonts/CaskaydiaCoveNFM-Regular.ttf"))
         .theme(theme)
         .settings(iced::Settings {
