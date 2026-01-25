@@ -1,11 +1,11 @@
 mod components;
 mod constants;
 mod file;
+mod handler;
 mod io;
 mod key_bindings;
-mod state;
-mod handler;
 mod message;
+mod state;
 
 use iced::Theme;
 use iced::widget::column;
@@ -41,8 +41,8 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::LinkClicked(url) => handler::link_clicked(url),
         Message::FileActionSelected(action) => handler::file_action(state, action),
         Message::ViewActionSelected(action) => handler::view_action(state, action),
-        Message::FileOpened(_) => todo!(),
-        Message::FileSaved(path_buf) => todo!(),
+        Message::FileOpened(result) => handler::opened_file(state, result),
+        Message::FileSaved(result) => handler::saved_file(state, result),
     }
 }
 
@@ -83,4 +83,3 @@ fn subscription(_state: &State) -> Subscription<Message> {
 fn theme(_state: &State) -> Theme {
     Theme::Dark
 }
-
