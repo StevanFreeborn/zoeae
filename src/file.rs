@@ -1,55 +1,80 @@
-use std::{
-    fs::{read_to_string, write},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
-pub fn save_file_to_disk(path: PathBuf, text: String) {
-    let save_result = write(path, text);
+use iced::widget::{markdown, text_editor};
 
-    match save_result {
-        Ok(_) => {},
-        Err(err) => eprintln!("Error: {}", err),
+pub struct File {
+    content: text_editor::Content,
+    path: Option<PathBuf>,
+    markdown: Vec<markdown::Item>,
+}
+
+impl Default for File {
+    fn default() -> Self {
+        File {
+            content: text_editor::Content::new(),
+            path: None,
+            markdown: Vec::new(),
+        }
     }
 }
 
-pub fn load_file_from_disk(path: PathBuf) -> String {
-    let read_result = read_to_string(path);
+impl File {
+    pub fn from(content: &str, path: Option<PathBuf>) -> Self {
+        let text_editor_content = text_editor::Content::with_text(content);
+        let markdown = markdown::parse(content).collect();
 
-    match read_result {
-        Ok(contents) => contents,
-        Err(_) => String::new(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::{self, remove_file};
-
-    #[test]
-    fn test_save_file_to_disk() {
-        let test_path = PathBuf::from("test_file.txt");
-        let test_content = String::from("Hello, Chat!");
-
-        save_file_to_disk(test_path.clone(), test_content.clone());
-
-        let saved_content = fs::read_to_string(&test_path).unwrap();
-
-        assert_eq!(saved_content, test_content);
-
-        let _ = remove_file(test_path);
+        File {
+            content: text_editor_content,
+            path,
+            markdown,
+        }
     }
 
-    #[test]
-    fn test_load_file_from_disk() {
-        let test_path = PathBuf::from("test_file.txt");
-        let test_content = String::from("Hello, Chat!");
-        let _ = fs::write(test_path.clone(), test_content.clone());
+    pub fn content(&self) -> &text_editor::Content {
+        &self.content
+    }
 
-        let saved_content = load_file_from_disk(test_path.clone());
+    pub fn content_mut(&mut self) -> &mut text_editor::Content {
+        &mut self.content
+    }
 
-        assert_eq!(saved_content, test_content);
+    pub fn set_content(&mut self, content: &str) {
+        self.content = text_editor::Content::with_text(content);
+    }
 
-        let _ = remove_file(test_path);
+    pub fn markdown(&self) -> Vec<&markdown::Item> {
+        self.markdown.iter().collect()
+    }
+
+    pub fn update_markdown(&mut self) {
+        self.markdown = markdown::parse(&self.content.text()).collect();
+    }
+
+    pub fn path(&self) -> Option<&PathBuf> {
+        self.path.as_ref()
+    }
+
+    pub fn set_path(&mut self, path: Option<PathBuf>) {
+        self.path = path;
+    }
+
+    pub fn display_name(&self) -> &str {
+        self.path
+            .as_deref()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("New file")
+    }
+
+    pub fn position_summary(&self) -> String {
+        let pos = self.content.cursor().position;
+        format!("Ln {}, Col {}", pos.line, pos.column)
+    }
+
+    pub fn path_summary(&self) -> String {
+        self.path
+            .as_deref()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
     }
 }
