@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, path::PathBuf};
 
 use iced::widget::text_editor;
 
@@ -68,4 +68,6 @@ pub enum Message {
     ViewActionSelected(ViewAction),
     SwitchTab(usize),
     LinkClicked(String),
+    FileOpened(Result<(PathBuf, String), String>),
+    FileSaved(Result<PathBuf, String>),
 }
