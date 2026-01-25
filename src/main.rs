@@ -41,6 +41,8 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::LinkClicked(url) => handler::link_clicked(url),
         Message::FileActionSelected(action) => handler::file_action(state, action),
         Message::ViewActionSelected(action) => handler::view_action(state, action),
+        Message::FileOpened(_) => todo!(),
+        Message::FileSaved(path_buf) => todo!(),
     }
 }
 
