@@ -34,6 +34,10 @@ pub fn main() -> iced::Result {
         .run()
 }
 
+fn boot() -> State {
+    state::State::new()
+}
+
 fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
         Message::Edit(action) => handler::edit(state, action),
@@ -57,10 +61,6 @@ fn view(state: &State) -> Element<'_, Message> {
     ]
     .padding(10)
     .into()
-}
-
-fn boot() -> State {
-    state::State::new()
 }
 
 fn subscription(_state: &State) -> Subscription<Message> {
