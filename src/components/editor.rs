@@ -1,5 +1,5 @@
 use iced::{
-  Element, Length, Theme, highlighter,
+  Element, Length, Theme, border, highlighter,
   widget::{container, markdown, row, text_editor},
 };
 
@@ -9,9 +9,24 @@ pub fn view<'a>(file: &'a File, mode: Mode, font_size: u32) -> Element<'a, Messa
   match mode {
     Mode::Edit => {
       let editor = text_editor(file.content())
-        .highlight(file.extension().unwrap_or("txt"), highlighter::Theme::Base16Ocean)
+        .highlight(
+          file.extension().unwrap_or("txt"),
+          highlighter::Theme::Base16Ocean,
+        )
+        .padding(10)
         .size(font_size)
         .height(Length::Fill)
+        .style(|theme: &Theme, status: text_editor::Status| {
+          let base = text_editor::default(theme, status);
+
+          text_editor::Style {
+            border: border::Border {
+              width: 0.0,
+              ..Default::default()
+            },
+            ..base
+          }
+        })
         .on_action(Message::Edit);
 
       container(row![editor]).height(Length::Fill).into()
