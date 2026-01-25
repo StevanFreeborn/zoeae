@@ -1,0 +1,1339 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 751dd12..cdb2db1 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1503,6 +1503,7 @@ dependencies = [
+  "iced_core",
+  "log",
+  "rustc-hash 2.1.1",
++ "tokio",
+  "wasm-bindgen-futures",
+  "wasmtimer",
+ ]
+@@ -3656,6 +3657,15 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+ 
++[[package]]
++name = "tokio"
++version = "1.49.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "72a2903cd7736441aac9df9d7688bd0ce48edccaadf181c3b90be801e81d3d86"
++dependencies = [
++ "pin-project-lite",
++]
++
+ [[package]]
+ name = "toml_datetime"
+ version = "0.7.5+spec-1.1.0"
+@@ -4849,6 +4859,7 @@ version = "0.1.0"
+ dependencies = [
+  "iced",
+  "rfd",
++ "tokio",
+  "uuid",
+ ]
+ 
+diff --git a/Cargo.toml b/Cargo.toml
+index 8daeef9..14fe584 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -4,6 +4,7 @@ version = "0.1.0"
+ edition = "2024"
+ 
+ [dependencies]
+-iced = { version = "0.14.0", features = ["image", "markdown", "highlighter"] }
++iced = { version = "0.14.0", features = ["image", "markdown", "highlighter", "tokio"] }
+ rfd = "0.17.1"
++tokio = { version ="1.49.0", features = ["fs"] }
+ uuid = { version = "1.19.0", features = ["v4"] }
+diff --git a/src/components/action_bar.rs b/src/components/action_bar.rs
+new file mode 100644
+index 0000000..4dd0ac4
+--- /dev/null
++++ b/src/components/action_bar.rs
+@@ -0,0 +1,29 @@
++use iced::{Element, Length, widget::{container, pick_list, row}};
++
++use crate::message::{FileAction, Message, ViewAction};
++
++pub fn view(
++    selected_file_action: Option<FileAction>,
++    selected_view_action: Option<ViewAction>,
++) -> Element<'static, Message> {
++    
++    let file_menu = pick_list(
++        FileAction::ALL,
++        selected_file_action,
++        Message::FileActionSelected,
++    )
++    .placeholder("File");
++
++    let view_menu = pick_list(
++        ViewAction::ALL,
++        selected_view_action,
++        Message::ViewActionSelected,
++    )
++    .placeholder("View");
++
++    container(
++        row![file_menu, view_menu].spacing(10)
++    )
++    .width(Length::Fill)
++    .into()
++}
+diff --git a/src/components/editor.rs b/src/components/editor.rs
+new file mode 100644
+index 0000000..d2a52fd
+--- /dev/null
++++ b/src/components/editor.rs
+@@ -0,0 +1,32 @@
++use iced::{
++    Element, Length, Theme,
++    widget::{container, markdown, row, text_editor},
++};
++
++use crate::{constants, file::File, message::Message, state::Mode};
++
++pub fn view<'a>(file: &'a File, mode: Mode, font_size: u32) -> Element<'a, Message> {
++    match mode {
++        Mode::Edit => {
++            let editor = text_editor(file.content())
++                .size(font_size)
++                .height(Length::Fill)
++                .on_action(Message::Edit);
++
++            container(row![editor]).height(Length::Fill).into()
++        }
++        Mode::Preview => {
++            let mut style: markdown::Style = Theme::Dark.into();
++            style.font = constants::CUSTOM_FONT;
++
++            let settings = markdown::Settings::with_text_size(font_size, style);
++
++            let markdown_preview =
++                markdown::view(file.markdown(), settings).map(Message::LinkClicked);
++
++            container(row![markdown_preview])
++                .height(Length::Fill)
++                .into()
++        }
++    }
++}
+diff --git a/src/components/mod.rs b/src/components/mod.rs
+new file mode 100644
+index 0000000..6e9ede3
+--- /dev/null
++++ b/src/components/mod.rs
+@@ -0,0 +1,4 @@
++pub mod tabs;
++pub mod editor;
++pub mod status_bar;
++pub mod action_bar;
+diff --git a/src/components/status_bar.rs b/src/components/status_bar.rs
+new file mode 100644
+index 0000000..a7cbeed
+--- /dev/null
++++ b/src/components/status_bar.rs
+@@ -0,0 +1,16 @@
++use iced::widget::{container, row, text};
++use iced::{Element, Length};
++use crate::file::File;
++
++pub fn view(file: &File) -> Element<'_, crate::Message> {
++    let path_text = text(file.path_summary());
++    let cursor_text = text(file.position_summary());
++
++    container(
++        row![cursor_text, path_text]
++            .spacing(20)
++    )
++    .width(Length::Fill)
++    .padding(5)
++    .into()
++}
+diff --git a/src/components/tabs.rs b/src/components/tabs.rs
+new file mode 100644
+index 0000000..842cf54
+--- /dev/null
++++ b/src/components/tabs.rs
+@@ -0,0 +1,41 @@
++use crate::file::File;
++use crate::message::{FileAction, Message};
++use iced::{Background, Border, Theme, border};
++use iced::{
++    Element,
++    widget::{button, container, row, scrollable, text},
++};
++
++pub fn view<'a>(files: &'a [File], active_index: usize) -> Element<'a, Message> {
++    let tabs = files.iter().enumerate().map(|(index, file)| {
++        let is_focused = index == active_index;
++
++        let label = text(file.display_name());
++        let close_btn =
++            button(text("x")).on_press(Message::FileActionSelected(FileAction::Close(Some(index))));
++
++        button(row![label, close_btn].spacing(5))
++            .on_press(Message::SwitchTab(index))
++            .padding(5)
++            .style(move |theme: &Theme, status| {
++                let base = button::primary(theme, status);
++                let button_background = if is_focused {
++                    base.background
++                } else {
++                    Some(Background::Color(theme.palette().background))
++                };
++
++                button::Style {
++                    background: button_background,
++                    border: Border {
++                        radius: border::radius(0).top_left(10).top_right(10),
++                        ..base.border
++                    },
++                    ..base
++                }
++            })
++            .into()
++    });
++
++    scrollable(container(row(tabs).spacing(2))).into()
++}
+diff --git a/src/constants.rs b/src/constants.rs
+new file mode 100644
+index 0000000..4e4acb9
+--- /dev/null
++++ b/src/constants.rs
+@@ -0,0 +1,8 @@
++use iced::Font;
++
++pub const CUSTOM_FONT_BYTES: &[u8] = include_bytes!("./fonts/CaskaydiaCoveNFM-Regular.ttf");
++pub const CUSTOM_FONT: Font = Font::with_name("CaskaydiaCove Nerd Font Mono");
++pub const DEFAULT_EDITOR_FONT_SIZE: u32 = 16;
++pub const MAX_EDITOR_FONT_SIZE: u32 = 80;
++pub const MIN_EDITOR_FONT_SIZE: u32 = 12;
++pub const ICON_BYTES: &[u8] = include_bytes!("./images/icon.ico");
+diff --git a/src/file.rs b/src/file.rs
+index 105303d..fcf1ea4 100644
+--- a/src/file.rs
++++ b/src/file.rs
+@@ -1,55 +1,80 @@
+-use std::{
+-    fs::{read_to_string, write},
+-    path::PathBuf,
+-};
++use std::path::PathBuf;
+ 
+-pub fn save_file_to_disk(path: PathBuf, text: String) {
+-    let save_result = write(path, text);
++use iced::widget::{markdown, text_editor};
+ 
+-    match save_result {
+-        Ok(_) => {},
+-        Err(err) => eprintln!("Error: {}", err),
++pub struct File {
++    content: text_editor::Content,
++    path: Option<PathBuf>,
++    markdown: Vec<markdown::Item>,
++}
++
++impl Default for File {
++    fn default() -> Self {
++        File {
++            content: text_editor::Content::new(),
++            path: None,
++            markdown: Vec::new(),
++        }
+     }
+ }
+ 
+-pub fn load_file_from_disk(path: PathBuf) -> String {
+-    let read_result = read_to_string(path);
++impl File {
++    pub fn from(content: &str, path: Option<PathBuf>) -> Self {
++        let text_editor_content = text_editor::Content::with_text(content);
++        let markdown = markdown::parse(content).collect();
+ 
+-    match read_result {
+-        Ok(contents) => contents,
+-        Err(_) => String::new(),
++        File {
++            content: text_editor_content,
++            path,
++            markdown,
++        }
+     }
+-}
+ 
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    use std::fs::{self, remove_file};
++    pub fn content(&self) -> &text_editor::Content {
++        &self.content
++    }
+ 
+-    #[test]
+-    fn test_save_file_to_disk() {
+-        let test_path = PathBuf::from("test_file.txt");
+-        let test_content = String::from("Hello, Chat!");
++    pub fn content_mut(&mut self) -> &mut text_editor::Content {
++        &mut self.content
++    }
+ 
+-        save_file_to_disk(test_path.clone(), test_content.clone());
++    pub fn set_content(&mut self, content: &str) {
++        self.content = text_editor::Content::with_text(content);
++    }
+ 
+-        let saved_content = fs::read_to_string(&test_path).unwrap();
++    pub fn markdown(&self) -> Vec<&markdown::Item> {
++        self.markdown.iter().collect()
++    }
+ 
+-        assert_eq!(saved_content, test_content);
++    pub fn update_markdown(&mut self) {
++        self.markdown = markdown::parse(&self.content.text()).collect();
++    }
+ 
+-        let _ = remove_file(test_path);
++    pub fn path(&self) -> Option<&PathBuf> {
++        self.path.as_ref()
+     }
+ 
+-    #[test]
+-    fn test_load_file_from_disk() {
+-        let test_path = PathBuf::from("test_file.txt");
+-        let test_content = String::from("Hello, Chat!");
+-        let _ = fs::write(test_path.clone(), test_content.clone());
++    pub fn set_path(&mut self, path: Option<PathBuf>) {
++        self.path = path;
++    }
+ 
+-        let saved_content = load_file_from_disk(test_path.clone());
++    pub fn display_name(&self) -> &str {
++        self.path
++            .as_deref()
++            .and_then(|p| p.file_name())
++            .and_then(|n| n.to_str())
++            .unwrap_or("New file")
++    }
+ 
+-        assert_eq!(saved_content, test_content);
++    pub fn position_summary(&self) -> String {
++        let pos = self.content.cursor().position;
++        format!("Ln {}, Col {}", pos.line, pos.column)
++    }
+ 
+-        let _ = remove_file(test_path);
++    pub fn path_summary(&self) -> String {
++        self.path
++            .as_deref()
++            .map(|p| p.to_string_lossy().to_string())
++            .unwrap_or_default()
+     }
+ }
+diff --git a/src/handler.rs b/src/handler.rs
+new file mode 100644
+index 0000000..110006d
+--- /dev/null
++++ b/src/handler.rs
+@@ -0,0 +1,81 @@
++use std::path::PathBuf;
++
++use crate::io;
++use crate::message::{FileAction, ViewAction};
++use crate::{Message, state::State};
++use iced::Task;
++use iced::widget::text_editor;
++
++pub fn edit(state: &mut State, action: text_editor::Action) -> Task<Message> {
++    state.apply_edit(action);
++    Task::none()
++}
++
++pub fn switch_tab(state: &mut State, index: usize) -> Task<Message> {
++    state.switch_tab(index);
++    Task::none()
++}
++
++pub fn link_clicked(url: String) -> Task<Message> {
++    println!("Opening link: {}", url);
++    Task::none()
++}
++
++pub fn file_action(state: &mut State, action: FileAction) -> Task<Message> {
++    match action {
++        FileAction::New => {
++            state.new_file();
++            Task::none()
++        }
++        FileAction::Close(index) => {
++            if state.close_file(index) {
++                iced::exit()
++            } else {
++                Task::none()
++            }
++        }
++        FileAction::Open => Task::perform(io::open_file(), Message::FileOpened),
++        FileAction::Save => {
++            let (current_path, content) = state.active_file_data();
++            let path = current_path.cloned();
++            Task::perform(io::save_file(path, content), Message::FileSaved)
++        }
++        FileAction::SaveAs => {
++            let (_, content) = state.active_file_data();
++            Task::perform(io::save_file(None, content), Message::FileSaved)
++        }
++    }
++}
++
++pub fn opened_file(state: &mut State, result: Result<(PathBuf, String), String>) -> Task<Message> {
++    match result {
++        Ok((path, content)) => {
++            state.open_file(path, content);
++        }
++        Err(_error) => {}
++    };
++
++    Task::none()
++}
++
++pub fn saved_file(state: &mut State, result: Result<PathBuf, String>) -> Task<Message> {
++    match result {
++        Ok(path) => {
++            state.set_active_file_path(path);
++        }
++        Err(_error) => {}
++    };
++
++    Task::none()
++}
++
++pub fn view_action(state: &mut State, action: ViewAction) -> Task<Message> {
++    match action {
++        ViewAction::Increase => state.increase_font(),
++        ViewAction::Decrease => state.decrease_font(),
++        ViewAction::Reset => state.reset_font(),
++        ViewAction::TogglePreview => state.toggle_preview(),
++    }
++
++    Task::none()
++}
+diff --git a/src/io.rs b/src/io.rs
+new file mode 100644
+index 0000000..c36cf8d
+--- /dev/null
++++ b/src/io.rs
+@@ -0,0 +1,45 @@
++use std::path::PathBuf;
++
++use rfd::AsyncFileDialog;
++use tokio::fs;
++
++pub async fn open_file() -> Result<(PathBuf, String), String> {
++    let handle_result = AsyncFileDialog::new()
++        .set_directory("/")
++        .pick_file()
++        .await
++        .ok_or(String::from("Dialog cancelled"));
++
++    match handle_result {
++        Ok(handle) => {
++            let path = handle.path().to_owned();
++            let content_result = fs::read_to_string(&path).await.map_err(|e| e.to_string());
++
++            match content_result {
++                Ok(content) => Ok((path, content)),
++                Err(e) => Err(e),
++            }
++        }
++        Err(e) => Err(e),
++    }
++}
++
++pub async fn save_file(path: Option<PathBuf>, text: String) -> Result<PathBuf, String> {
++    let save_path = match path {
++        Some(p) => p,
++        None => AsyncFileDialog::new()
++            .set_directory("/")
++            .save_file()
++            .await
++            .ok_or(String::from("Dialog cancelled"))?
++            .path()
++            .to_owned(),
++    };
++
++    let save_result = fs::write(&save_path, text).await.map_err(|e| e.to_string());
++
++    match save_result {
++        Ok(_) => Ok(save_path),
++        Err(err) => Err(err),
++    }
++}
+diff --git a/src/key_bindings.rs b/src/key_bindings.rs
+new file mode 100644
+index 0000000..f1eb0ab
+--- /dev/null
++++ b/src/key_bindings.rs
+@@ -0,0 +1,68 @@
++use iced::keyboard::{self, Key, Modifiers};
++
++use crate::message::{FileAction, Message, ViewAction};
++
++pub struct Keybinding {
++    key: &'static str,
++    modifiers: Modifiers,
++    message: Message,
++}
++
++impl Keybinding {
++    pub fn should_handle(&self, key_pressed: &Key, modifiers: &Modifiers) -> bool {
++        let key = keyboard::Key::Character(self.key.into());
++        modifiers.contains(self.modifiers) && key_pressed == &key
++    }
++
++    pub fn message(&self) -> Message {
++        self.message.clone()
++    }
++}
++
++pub const ALL: &[Keybinding] = &[
++    Keybinding {
++        key: "o",
++        modifiers: Modifiers::CTRL,
++        message: Message::FileActionSelected(FileAction::Open),
++    },
++    Keybinding {
++        key: "n",
++        modifiers: Modifiers::CTRL,
++        message: Message::FileActionSelected(FileAction::New),
++    },
++    Keybinding {
++        key: "s",
++        modifiers: Modifiers::CTRL.union(Modifiers::SHIFT),
++        message: Message::FileActionSelected(FileAction::SaveAs),
++    },
++    Keybinding {
++        key: "s",
++        modifiers: Modifiers::CTRL,
++        message: Message::FileActionSelected(FileAction::Save),
++    },
++    Keybinding {
++        key: "w",
++        modifiers: Modifiers::CTRL,
++        message: Message::FileActionSelected(FileAction::Close(None)),
++    },
++    Keybinding {
++        key: "p",
++        modifiers: Modifiers::CTRL,
++        message: Message::ViewActionSelected(ViewAction::TogglePreview),
++    },
++    Keybinding {
++        key: "=",
++        modifiers: Modifiers::CTRL,
++        message: Message::ViewActionSelected(ViewAction::Increase),
++    },
++    Keybinding {
++        key: "-",
++        modifiers: Modifiers::CTRL,
++        message: Message::ViewActionSelected(ViewAction::Decrease),
++    },
++    Keybinding {
++        key: "0",
++        modifiers: Modifiers::CTRL,
++        message: Message::ViewActionSelected(ViewAction::Reset),
++    },
++];
+diff --git a/src/main.rs b/src/main.rs
+index 18a6c3c..8e0b29b 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,468 +1,75 @@
++mod components;
++mod constants;
+ mod file;
+-
+-use std::path::PathBuf;
+-
+-use iced::keyboard::{Key, Modifiers};
+-use iced::padding::bottom;
+-use iced::widget::{
+-    button, column, container, markdown, pick_list, row, scrollable, text, text_editor,
+-};
++mod handler;
++mod io;
++mod key_bindings;
++mod message;
++mod state;
++
++use iced::Theme;
++use iced::widget::column;
+ use iced::window::icon;
+-use iced::{Background, Border, Element, Subscription, Task, border, event};
+-use iced::{Font, Length, Theme};
++use iced::{Element, Subscription, Task, event};
+ use iced::{keyboard, window};
+-use rfd::FileDialog;
+-
+-const CUSTOM_FONT: Font = Font::with_name("CaskaydiaCove Nerd Font Mono");
+-const DEFAULT_EDITOR_FONT_SIZE: u32 = 16;
+-const MAX_EDITOR_FONT_SIZE: u32 = 80;
+-const MIN_EDITOR_FONT_SIZE: u32 = 12;
+-
+-struct File {
+-    content: text_editor::Content,
+-    path: Option<PathBuf>,
+-    markdown: Vec<markdown::Item>,
+-}
+-
+-impl Default for File {
+-    fn default() -> Self {
+-        File {
+-            content: text_editor::Content::new(),
+-            path: None,
+-            markdown: Vec::new(),
+-        }
+-    }
+-}
+-
+-#[derive(Default)]
+-enum Mode {
+-    #[default]
+-    Edit,
+-    Preview,
+-}
+-
+-#[derive(Default)]
+-struct State {
+-    mode: Mode,
+-    files: Vec<File>,
+-    current_file: usize,
+-    editor_font_size: u32,
+-    selected_file_action: Option<FileAction>,
+-    selected_view_action: Option<ViewAction>,
+-}
+-
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+-enum FileAction {
+-    New,
+-    Save,
+-    SaveAs,
+-    Open,
+-    Close(Option<usize>),
+-}
+-
+-impl FileAction {
+-    const ALL: &'static [FileAction] = &[
+-        FileAction::New,
+-        FileAction::Save,
+-        FileAction::SaveAs,
+-        FileAction::Open,
+-        FileAction::Close(None),
+-    ];
+-}
+-
+-impl std::fmt::Display for FileAction {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            FileAction::New => write!(f, "New file"),
+-            FileAction::Save => write!(f, "Save"),
+-            FileAction::SaveAs => write!(f, "Save as... "),
+-            FileAction::Open => write!(f, "Open"),
+-            FileAction::Close(_) => write!(f, "Close"),
+-        }
+-    }
+-}
+-
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+-enum ViewAction {
+-    Increase,
+-    Decrease,
+-    Reset,
+-    TogglePreview,
+-}
+-
+-impl ViewAction {
+-    const ALL: &'static [ViewAction] = &[
+-        ViewAction::Increase,
+-        ViewAction::Decrease,
+-        ViewAction::Reset,
+-        ViewAction::TogglePreview,
+-    ];
+-}
+-
+-impl std::fmt::Display for ViewAction {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            ViewAction::Decrease => write!(f, "Decrease font"),
+-            ViewAction::Increase => write!(f, "Increase font"),
+-            ViewAction::Reset => write!(f, "Reset font"),
+-            ViewAction::TogglePreview => write!(f, "Toggle preview"),
+-        }
+-    }
+-}
+-
+-#[derive(Debug, Clone)]
+-enum Message {
+-    Edit(text_editor::Action),
+-    FileActionSelected(FileAction),
+-    ViewActionSelected(ViewAction),
+-    SwitchTab(usize),
+-    LinkClicked(String),
+-}
+-
+-// TODO: Can we at least make
+-// theme configurable
+-// and then maybe even define
+-// complete custom and/or use
+-// existing as starter
+-fn theme(_state: &State) -> Theme {
+-    Theme::Dark
+-}
+-
+-fn view(state: &State) -> Element<'_, Message> {
+-    let mut tab_row = row![];
+ 
+-    for (file_index, file) in state.files.iter().enumerate() {
+-        let file_name = if let Some(p) = &file.path {
+-            p.file_name()
+-                .expect("unable to get file name")
+-                .to_str()
+-                .expect("unable to get file name")
+-        } else {
+-            "New file"
+-        };
++use crate::message::Message;
++use crate::state::State;
+ 
+-        let tab_button_text = text(file_name).wrapping(text::Wrapping::None);
+-        let delete_button = button(text("x")).on_press(Message::FileActionSelected(
+-            FileAction::Close(Some(file_index)),
+-        ));
+-
+-        let tab_button = button(row![tab_button_text, delete_button])
+-            .style(move |theme: &Theme, status| {
+-                let base = button::primary(theme, status);
+-                let is_focused = state.current_file == file_index;
+-                let button_background = if is_focused {
+-                    base.background
+-                } else {
+-                    Some(Background::Color(theme.palette().background))
+-                };
+-
+-                button::Style {
+-                    background: button_background,
+-                    border: Border {
+-                        radius: border::radius(0).top_left(10).top_right(10),
+-                        ..base.border
+-                    },
+-                    ..base
+-                }
+-            })
+-            .on_press(Message::SwitchTab(file_index));
+-
+-        tab_row = tab_row.push(tab_button);
+-    }
+-
+-    let tabs = scrollable(container(tab_row).padding(bottom(10))).direction(
+-        scrollable::Direction::Horizontal(scrollable::Scrollbar::new()),
+-    );
+-
+-    let file_menu = pick_list(
+-        FileAction::ALL,
+-        state.selected_file_action,
+-        Message::FileActionSelected,
+-    )
+-    .placeholder("File");
+-
+-    let view_menu = pick_list(
+-        ViewAction::ALL,
+-        state.selected_view_action,
+-        Message::ViewActionSelected,
+-    )
+-    .placeholder("View");
+-
+-    let action_bar = container(row![file_menu, view_menu].spacing(5));
+-
+-    let current_file = &state.files[state.current_file];
+-
+-    let editor = text_editor(&current_file.content)
+-        .size(state.editor_font_size)
+-        .height(Length::Fill)
+-        .on_action(Message::Edit);
+-
+-    let mut markdown_styles: markdown::Style = Theme::Dark.into();
+-    markdown_styles.font = CUSTOM_FONT;
+-
+-    let markdown_settings =
+-        markdown::Settings::with_text_size(state.editor_font_size, markdown_styles);
+-
+-    let markdown_preview =
+-        markdown::view(&current_file.markdown, markdown_settings).map(Message::LinkClicked);
+-
+-    let preview_container = container(row![markdown_preview]).height(Length::Fill);
+-    let editor_container = container(row![editor]).height(Length::Fill);
+-
+-    let cursor_position = current_file.content.cursor().position;
+-
+-    let cursor_display_text = format!(
+-        "Ln {}, Col {}",
+-        cursor_position.line, cursor_position.column
+-    );
+-    let cursor_text = text(cursor_display_text);
+-
+-    let file_path_display_text = match &current_file.path {
+-        Some(path) => path.to_string_lossy().to_string(),
+-        None => String::new(),
+-    };
+-
+-    let file_path_text = text(file_path_display_text);
+-
+-    let status_bar = container(row![file_path_text, cursor_text].spacing(10));
+-
+-    let main = match state.mode {
+-        Mode::Edit => editor_container,
+-        Mode::Preview => preview_container,
+-    };
+-
+-    container(column![tabs, action_bar, main, status_bar])
+-        .padding(10)
+-        .into()
+-}
+-
+-fn save_file(path: Option<PathBuf>, text: String) -> Option<PathBuf> {
+-    let mut save_path = path.clone();
+-
+-    if path.is_none() {
+-        save_path = FileDialog::new().set_directory("/").save_file();
+-    }
+-
+-    match save_path {
+-        Some(p) => {
+-            let sp = p.clone();
+-            file::save_file_to_disk(sp, text);
+-            Some(p)
+-        }
+-        None => None,
+-    }
+-}
+-
+-fn save_file_as(text: String) -> Option<PathBuf> {
+-    let files = FileDialog::new().set_directory("/").save_file();
+-
+-    match files {
+-        Some(path) => {
+-            file::save_file_to_disk(path.clone(), text);
+-            Some(path)
+-        }
+-        None => None,
+-    }
++pub fn main() -> iced::Result {
++    iced::application(boot, update, view)
++        .subscription(subscription)
++        .font(constants::CUSTOM_FONT_BYTES)
++        .theme(theme)
++        .settings(iced::Settings {
++            default_font: constants::CUSTOM_FONT,
++            ..Default::default()
++        })
++        .window(window::Settings {
++            icon: Some(
++                icon::from_file_data(constants::ICON_BYTES, None).expect("Failed to load icon"),
++            ),
++            ..window::Settings::default()
++        })
++        .run()
+ }
+ 
+-fn open_file() -> (Option<PathBuf>, String) {
+-    // TODO: Allow opening multiple files
+-    let file = FileDialog::new().set_directory("/").pick_file();
+-
+-    match file {
+-        Some(path) => {
+-            let content = file::load_file_from_disk(path.clone());
+-            (Some(path), content)
+-        }
+-        None => (None, String::new()),
+-    }
++fn boot() -> State {
++    state::State::new()
+ }
+ 
+ fn update(state: &mut State, message: Message) -> Task<Message> {
+     match message {
+-        Message::Edit(action) => {
+-            let current_file = &mut state.files[state.current_file];
+-            current_file.content.perform(action);
+-            current_file.markdown = markdown::parse(&current_file.content.text()).collect();
+-        }
+-        Message::FileActionSelected(action) => {
+-            state.selected_file_action = None;
+-
+-            match action {
+-                FileAction::SaveAs => {
+-                    println!("We are here!");
+-                    let current_file = &mut state.files[state.current_file];
+-                    let path = save_file_as(current_file.content.text());
+-                    
+-                    if path.is_some() {
+-                        current_file.path = path;
+-                    }
+-                }
+-                FileAction::Open => {
+-                    let (path, content) = open_file();
+-
+-                    if let Some(opened_path) = &path {
+-                        for (file_index, file) in state.files.iter_mut().enumerate() {
+-                            if let Some(existing_path) = &file.path
+-                                && opened_path == existing_path
+-                            {
+-                                file.content = text_editor::Content::with_text(&content);
+-                                state.current_file = file_index;
+-                                return Task::none();
+-                            }
+-                        }
+-
+-                        let opened_file = File {
+-                            path,
+-                            content: text_editor::Content::with_text(&content),
+-                            markdown: markdown::parse(&content).collect(),
+-                        };
+-
+-                        state.files.push(opened_file);
+-                        state.current_file = state.files.len() - 1;
+-                    }
+-                }
+-                FileAction::Save => {
+-                    let current_file = &mut state.files[state.current_file];
+-                    let path = save_file(current_file.path.clone(), current_file.content.text());
+-                    current_file.path = path;
+-                }
+-                FileAction::New => {
+-                    let default_file = File::default();
+-
+-                    state.files.push(default_file);
+-                    state.current_file = state.files.len() - 1;
+-                }
+-                FileAction::Close(idx) => {
+-                    let idx_to_close = match idx {
+-                        Some(i) => i,
+-                        None => state.current_file,
+-                    };
+-
+-                    if state.files.len() == 1 {
+-                        return iced::exit();
+-                    }
+-
+-                    if state.files.len() - 1 == idx_to_close {
+-                        state.current_file = state.files.len() - 2;
+-                        state.files.remove(idx_to_close);
+-                        return Task::none();
+-                    }
+-
+-                    state.current_file -= 1;
+-                    state.files.remove(idx_to_close);
+-                }
+-            }
+-        }
+-        Message::ViewActionSelected(action) => {
+-            state.selected_view_action = None;
+-
+-            match action {
+-                ViewAction::Increase => {
+-                    if state.editor_font_size >= MAX_EDITOR_FONT_SIZE {
+-                        return Task::none();
+-                    }
+-
+-                    state.editor_font_size += 2;
+-                }
+-                ViewAction::Decrease => {
+-                    if state.editor_font_size <= MIN_EDITOR_FONT_SIZE {
+-                        return Task::none();
+-                    }
+-
+-                    state.editor_font_size -= 2;
+-                }
+-                ViewAction::Reset => {
+-                    state.editor_font_size = DEFAULT_EDITOR_FONT_SIZE;
+-                }
+-                // TODO: Carry previous mode when toggling
+-                // so that if we already in preview we can
+-                // just put the user back where they were
+-                ViewAction::TogglePreview => match state.mode {
+-                    Mode::Edit => state.mode = Mode::Preview,
+-                    Mode::Preview => state.mode = Mode::Edit,
+-                },
+-            }
+-        }
+-        Message::SwitchTab(file_id) => {
+-            state.current_file = file_id;
+-        }
+-        Message::LinkClicked(link) => {
+-            print!("Link clicked: {}", link);
+-        }
++        Message::Edit(action) => handler::edit(state, action),
++        Message::SwitchTab(index) => handler::switch_tab(state, index),
++        Message::LinkClicked(url) => handler::link_clicked(url),
++        Message::FileActionSelected(action) => handler::file_action(state, action),
++        Message::ViewActionSelected(action) => handler::view_action(state, action),
++        Message::FileOpened(result) => handler::opened_file(state, result),
++        Message::FileSaved(result) => handler::saved_file(state, result),
+     }
+-
+-    Task::none()
+ }
+ 
+-struct Keybinding {
+-    key: &'static str,
+-    modifiers: Modifiers,
+-    message: Message,
+-}
+-
+-impl Keybinding {
+-    fn should_handle(&self, key_pressed: &Key, modifiers: &Modifiers) -> bool {
+-        let key = keyboard::Key::Character(self.key.into());
+-        modifiers.contains(self.modifiers) && key_pressed == &key
+-    }
++fn view(state: &State) -> Element<'_, Message> {
++    let current_file = state.active_file();
+ 
+-    const ALL: &'static [Keybinding] = &[
+-        Keybinding {
+-            key: "o",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::FileActionSelected(FileAction::Open),
+-        },
+-        Keybinding {
+-            key: "n",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::FileActionSelected(FileAction::New),
+-        },
+-        Keybinding {
+-            key: "s",
+-            modifiers: Modifiers::CTRL.union(Modifiers::SHIFT),
+-            message: Message::FileActionSelected(FileAction::SaveAs),
+-        },
+-        Keybinding {
+-            key: "s",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::FileActionSelected(FileAction::Save),
+-        },
+-        Keybinding {
+-            key: "w",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::FileActionSelected(FileAction::Close(None)),
+-        },
+-        Keybinding {
+-            key: "p",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::ViewActionSelected(ViewAction::TogglePreview),
+-        },
+-        Keybinding {
+-            key: "=",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::ViewActionSelected(ViewAction::Increase),
+-        },
+-        Keybinding {
+-            key: "-",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::ViewActionSelected(ViewAction::Decrease),
+-        },
+-        Keybinding {
+-            key: "0",
+-            modifiers: Modifiers::CTRL,
+-            message: Message::ViewActionSelected(ViewAction::Reset),
+-        },
+-    ];
++    column![
++        components::tabs::view(state.files(), state.current_file_index()),
++        components::action_bar::view(state.selected_file_action(), state.selected_view_action()),
++        components::editor::view(current_file, state.mode(), state.font_size()),
++        components::status_bar::view(current_file),
++    ]
++    .padding(10)
++    .into()
+ }
+ 
+ fn subscription(_state: &State) -> Subscription<Message> {
+     event::listen_with(|e, _status, _win| -> Option<Message> {
+         match e {
+             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+-                for vb in Keybinding::ALL {
++                for vb in key_bindings::ALL {
+                     if vb.should_handle(&key, &modifiers) {
+-                        return Some(vb.message.clone());
++                        return Some(vb.message());
+                     }
+                 }
+ 
+@@ -473,34 +80,6 @@ fn subscription(_state: &State) -> Subscription<Message> {
+     })
+ }
+ 
+-fn boot() -> State {
+-    let default_file = File::default();
+-
+-    let files = vec![default_file];
+-
+-    State {
+-        files,
+-        current_file: 0,
+-        editor_font_size: DEFAULT_EDITOR_FONT_SIZE,
+-        ..Default::default()
+-    }
+-}
+-
+-pub fn main() -> iced::Result {
+-    iced::application(boot, update, view)
+-        .subscription(subscription)
+-        .font(include_bytes!("./fonts/CaskaydiaCoveNFM-Regular.ttf"))
+-        .theme(theme)
+-        .settings(iced::Settings {
+-            default_font: CUSTOM_FONT,
+-            ..Default::default()
+-        })
+-        .window(window::Settings {
+-            icon: Some(
+-                icon::from_file_data(include_bytes!("./images/icon.ico"), None)
+-                    .expect("Failed to load icon"),
+-            ),
+-            ..window::Settings::default()
+-        })
+-        .run()
++fn theme(_state: &State) -> Theme {
++    Theme::Dark
+ }
+diff --git a/src/message.rs b/src/message.rs
+new file mode 100644
+index 0000000..e05f1dc
+--- /dev/null
++++ b/src/message.rs
+@@ -0,0 +1,73 @@
++use std::{fmt::Display, path::PathBuf};
++
++use iced::widget::text_editor;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum FileAction {
++    New,
++    Save,
++    SaveAs,
++    Open,
++    Close(Option<usize>),
++}
++
++impl FileAction {
++    pub const ALL: &'static [FileAction] = &[
++        FileAction::New,
++        FileAction::Save,
++        FileAction::SaveAs,
++        FileAction::Open,
++        FileAction::Close(None),
++    ];
++}
++
++impl Display for FileAction {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            FileAction::New => write!(f, "New file"),
++            FileAction::Save => write!(f, "Save"),
++            FileAction::SaveAs => write!(f, "Save as... "),
++            FileAction::Open => write!(f, "Open"),
++            FileAction::Close(_) => write!(f, "Close"),
++        }
++    }
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ViewAction {
++    Increase,
++    Decrease,
++    Reset,
++    TogglePreview,
++}
++
++impl ViewAction {
++    pub const ALL: &'static [ViewAction] = &[
++        ViewAction::Increase,
++        ViewAction::Decrease,
++        ViewAction::Reset,
++        ViewAction::TogglePreview,
++    ];
++}
++
++impl Display for ViewAction {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            ViewAction::Decrease => write!(f, "Decrease font"),
++            ViewAction::Increase => write!(f, "Increase font"),
++            ViewAction::Reset => write!(f, "Reset font"),
++            ViewAction::TogglePreview => write!(f, "Toggle preview"),
++        }
++    }
++}
++
++#[derive(Debug, Clone)]
++pub enum Message {
++    Edit(text_editor::Action),
++    FileActionSelected(FileAction),
++    ViewActionSelected(ViewAction),
++    SwitchTab(usize),
++    LinkClicked(String),
++    FileOpened(Result<(PathBuf, String), String>),
++    FileSaved(Result<PathBuf, String>),
++}
+diff --git a/src/state.rs b/src/state.rs
+new file mode 100644
+index 0000000..7ca7197
+--- /dev/null
++++ b/src/state.rs
+@@ -0,0 +1,147 @@
++use std::path::PathBuf;
++
++use iced::widget::text_editor;
++
++use crate::{constants, file};
++use crate::message::{FileAction, ViewAction};
++
++#[derive(Default, Copy, Clone)]
++pub enum Mode {
++    #[default]
++    Edit,
++    Preview,
++}
++
++#[derive(Default)]
++pub struct State {
++    mode: Mode,
++    files: Vec<file::File>,
++    current_file: usize,
++    editor_font_size: u32,
++    selected_file_action: Option<FileAction>,
++    selected_view_action: Option<ViewAction>,
++}
++
++impl State {
++    pub fn new() -> Self {
++        let default_file = file::File::default();
++
++        Self {
++            files: vec![default_file],
++            current_file: 0,
++            editor_font_size: constants::DEFAULT_EDITOR_FONT_SIZE,
++            ..Default::default()
++        }
++    }
++
++    pub fn apply_edit(&mut self, action: text_editor::Action) {
++        self.files[self.current_file].content_mut().perform(action);
++    }
++
++    pub fn new_file(&mut self) {
++        self.files.push(file::File::default());
++        self.current_file = self.files.len() - 1;
++    }
++
++    pub fn close_file(&mut self, index: Option<usize>) -> bool {
++        let index = index.unwrap_or(self.current_file);
++
++        if self.files.len() <= 1 {
++            return true;
++        }
++
++        self.files.remove(index);
++
++        if self.current_file >= self.files.len() {
++            self.current_file = self.files.len().saturating_sub(1);
++        } else if index < self.current_file {
++            self.current_file -= 1;
++        }
++
++        false
++    }
++
++    pub fn open_file(&mut self, path: PathBuf, content: String) {
++        if let Some(index) = self.files.iter().position(|f| f.path() == Some(&path)) {
++            self.files[index].set_content(&content);
++            self.current_file = index;
++            return;
++        }
++
++        let opened_file = file::File::from(&content, Some(path));
++
++        self.files.push(opened_file);
++        self.current_file = self.files.len() - 1;
++    }
++
++    pub fn switch_tab(&mut self, index: usize) {
++        if index < self.files.len() {
++            self.current_file = index;
++        }
++    }
++
++    pub fn active_file_data(&self) -> (Option<&PathBuf>, String) {
++        let file = &self.files[self.current_file];
++        (file.path(), file.content().text())
++    }
++
++    pub fn set_active_file_path(&mut self, path: PathBuf) {
++        if let Some(file) = self.files.get_mut(self.current_file) {
++            file.set_path(Some(path));
++        }
++    }
++
++    pub fn increase_font(&mut self) {
++        if self.editor_font_size < constants::MAX_EDITOR_FONT_SIZE {
++            self.editor_font_size += 2;
++        }
++    }
++
++    pub fn decrease_font(&mut self) {
++        if self.editor_font_size > constants::MIN_EDITOR_FONT_SIZE {
++            self.editor_font_size -= 2;
++        }
++    }
++
++    pub fn reset_font(&mut self) {
++        self.editor_font_size = constants::DEFAULT_EDITOR_FONT_SIZE;
++    }
++
++    pub fn toggle_preview(&mut self) {
++        match self.mode {
++            Mode::Edit => {
++                self.files[self.current_file].update_markdown();
++                self.mode = Mode::Preview;
++            }
++            Mode::Preview => self.mode = Mode::Edit,
++        }
++    }
++
++    pub fn files(&self) -> &[file::File] {
++        &self.files
++    }
++
++    pub fn current_file_index(&self) -> usize {
++        self.current_file
++    }
++
++    pub fn active_file(&self) -> &file::File {
++        &self.files[self.current_file]
++    }
++
++    pub fn mode(&self) -> Mode {
++        self.mode
++    }
++
++    pub fn font_size(&self) -> u32 {
++        self.editor_font_size
++    }
++
++    pub fn selected_file_action(&self) -> Option<FileAction> {
++        self.selected_file_action
++    }
++
++    pub fn selected_view_action(&self) -> Option<ViewAction> {
++        self.selected_view_action
++    }
++}
