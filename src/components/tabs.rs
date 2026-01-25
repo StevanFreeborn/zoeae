@@ -11,8 +11,9 @@ pub fn view<'a>(files: &'a [File], active_index: usize) -> Element<'a, Message> 
     let is_focused = index == active_index;
 
     let label = text(file.display_name());
-    let close_btn =
-      button(text("x")).padding(1).on_press(Message::FileActionSelected(FileAction::Close(Some(index))));
+    let close_btn = button(text("x"))
+      .padding(1)
+      .on_press(Message::FileActionSelected(FileAction::Close(Some(index))));
 
     button(
       row![label, close_btn]
@@ -62,7 +63,7 @@ pub fn view<'a>(files: &'a [File], active_index: usize) -> Element<'a, Message> 
     bottom: 0.0,
   }))
   .direction(scrollable::Direction::Horizontal(
-    scrollable::Scrollbar::new().spacing(1)
+    scrollable::Scrollbar::new().spacing(1),
   ))
   .style(|theme: &Theme, status: scrollable::Status| {
     let mut style = scrollable::default(theme, status);
