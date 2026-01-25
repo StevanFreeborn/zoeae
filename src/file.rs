@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{ffi, path::{Path, PathBuf}};
 
 use iced::widget::{markdown, text_editor};
 
@@ -56,6 +56,13 @@ impl File {
 
     pub fn set_path(&mut self, path: Option<PathBuf>) {
         self.path = path;
+    }
+
+    pub fn extension(&self) -> Option<&str> {
+        self.path
+            .as_deref()
+            .and_then(Path::extension)
+            .and_then(ffi::OsStr::to_str)
     }
 
     pub fn display_name(&self) -> &str {
