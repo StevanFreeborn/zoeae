@@ -1,6 +1,6 @@
 use std::{fmt::Display, path::PathBuf};
 
-use iced::widget::text_editor;
+use iced::{widget::text_editor, window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileAction {
@@ -63,6 +63,8 @@ impl Display for ViewAction {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+  WindowOpened(window::Id),
+  WindowClosed(window::Id),
   Edit(text_editor::Action),
   FileActionSelected(FileAction),
   ViewActionSelected(ViewAction),
