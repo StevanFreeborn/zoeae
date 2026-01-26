@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod components;
 mod constants;
 mod file;
@@ -18,7 +20,7 @@ use crate::message::Message;
 use crate::state::State;
 
 pub fn main() -> iced::Result {
-  iced::application(boot, update, view)
+  iced::daemon(boot, update, view)
     .subscription(subscription)
     .font(constants::CUSTOM_FONT_BYTES)
     .theme(theme)
@@ -26,15 +28,16 @@ pub fn main() -> iced::Result {
       default_font: constants::CUSTOM_FONT,
       ..Default::default()
     })
-    .window(window::Settings {
-      icon: Some(icon::from_file_data(constants::ICON_BYTES, None).expect("Failed to load icon")),
-      ..window::Settings::default()
-    })
     .run()
 }
 
-fn boot() -> State {
-  state::State::new()
+fn boot() -> (State, Task<Message>) {
+  let (id, open) = window::open(window::Settings {
+    icon: Some(icon::from_file_data(constants::ICON_BYTES, None).expect("Failed to load icon")),
+    ..window::Settings::default()
+  });
+
+  (state::State::new(id), open.map(Message::WindowOpened))
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -46,10 +49,21 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
     Message::ViewActionSelected(action) => handler::view_action(state, action),
     Message::FileOpened(result) => handler::opened_file(state, result),
     Message::FileSaved(result) => handler::saved_file(state, result),
+    Message::WindowOpened(id) => {
+      state.set_window_id(id);
+      Task::none()
+    }
+    Message::WindowClosed(id) => {
+      if state.window_id() == Some(id) {
+        iced::exit()
+      } else {
+        Task::none()
+      }
+    }
   }
 }
 
-fn view(state: &State) -> Element<'_, Message> {
+fn view(state: &State, _id: iced::window::Id) -> Element<'_, Message> {
   let current_file = state.active_file();
 
   column![
@@ -62,8 +76,9 @@ fn view(state: &State) -> Element<'_, Message> {
 }
 
 fn subscription(_state: &State) -> Subscription<Message> {
-  event::listen_with(|e, _status, _win| -> Option<Message> {
+  event::listen_with(|e, _status, win| -> Option<Message> {
     match e {
+      iced::Event::Window(window::Event::Closed) => Some(Message::WindowClosed(win)),
       iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
         for vb in key_bindings::ALL {
           if vb.should_handle(&key, &modifiers) {
@@ -78,7 +93,7 @@ fn subscription(_state: &State) -> Subscription<Message> {
   })
 }
 
-fn theme(_state: &State) -> Theme {
+fn theme(_state: &State, _id: iced::window::Id) -> Theme {
   Theme::custom(
     "Win11 Dark",
     Palette {

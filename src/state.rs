@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use iced::widget::text_editor;
+use iced::window;
 
 use crate::message::{FileAction, ViewAction};
 use crate::{constants, file};
@@ -14,6 +15,7 @@ pub enum Mode {
 
 #[derive(Default)]
 pub struct State {
+  window_id: Option<window::Id>,
   mode: Mode,
   files: Vec<file::File>,
   current_file: usize,
@@ -23,10 +25,11 @@ pub struct State {
 }
 
 impl State {
-  pub fn new() -> Self {
+  pub fn new(window_id: window::Id) -> Self {
     let default_file = file::File::default();
 
     Self {
+      window_id: Some(window_id),
       files: vec![default_file],
       current_file: 0,
       editor_font_size: constants::DEFAULT_EDITOR_FONT_SIZE,
@@ -133,6 +136,10 @@ impl State {
     self.mode
   }
 
+  pub fn window_id(&self) -> Option<window::Id> {
+    self.window_id
+  }
+
   pub fn font_size(&self) -> u32 {
     self.editor_font_size
   }
@@ -143,5 +150,9 @@ impl State {
 
   pub fn selected_view_action(&self) -> Option<ViewAction> {
     self.selected_view_action
+  }
+
+  pub fn set_window_id(&mut self, id: window::Id) {
+    self.window_id = Some(id)
   }
 }
