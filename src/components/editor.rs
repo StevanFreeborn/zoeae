@@ -1,6 +1,8 @@
 use iced::{
-  Element, Length, Theme, border, highlighter,
-  widget::{container, markdown, row, text_editor},
+  Background, Element, Length, Theme,
+  border::{self},
+  color, highlighter,
+  widget::{container, markdown, row, scrollable, text::Wrapping, text_editor},
 };
 
 use crate::{constants, file::File, message::Message, state::Mode};
@@ -15,7 +17,6 @@ pub fn view<'a>(file: &'a File, mode: Mode, font_size: u32) -> Element<'a, Messa
         )
         .padding(10)
         .size(font_size)
-        .height(Length::Fill)
         .style(|theme: &Theme, status: text_editor::Status| {
           let base = text_editor::default(theme, status);
 
@@ -29,7 +30,23 @@ pub fn view<'a>(file: &'a File, mode: Mode, font_size: u32) -> Element<'a, Messa
         })
         .on_action(Message::Edit);
 
-      container(row![editor]).height(Length::Fill).into()
+      scrollable(container(editor).height(Length::Fill))
+        .auto_scroll(true)
+        .direction(scrollable::Direction::Both {
+          vertical: scrollable::Scrollbar::default(),
+          horizontal: scrollable::Scrollbar::default(),
+        })
+        .style(|theme: &Theme, status: scrollable::Status| {
+          let mut style = scrollable::default(theme, status);
+          style.horizontal_rail.background = Some(Background::Color(theme.palette().background));
+          style.horizontal_rail.scroller.background = Background::Color(theme.palette().primary);
+          style.vertical_rail.background = Some(Background::Color(theme.palette().background));
+          style.vertical_rail.scroller.background = Background::Color(theme.palette().primary);
+          style
+        })
+        .anchor_bottom()
+        .height(Length::Fill)
+        .into()
     }
     Mode::Preview => {
       let mut style: markdown::Style = Theme::Dark.into();
@@ -39,8 +56,22 @@ pub fn view<'a>(file: &'a File, mode: Mode, font_size: u32) -> Element<'a, Messa
 
       let markdown_preview = markdown::view(file.markdown(), settings).map(Message::LinkClicked);
 
-      container(row![markdown_preview])
+      scrollable(row![markdown_preview].padding(10))
+        .auto_scroll(true)
+        .direction(scrollable::Direction::Both {
+          vertical: scrollable::Scrollbar::new().spacing(1),
+          horizontal: scrollable::Scrollbar::new().spacing(1),
+        })
+        .style(|theme: &Theme, status: scrollable::Status| {
+          let mut style = scrollable::default(theme, status);
+          style.horizontal_rail.background = Some(Background::Color(theme.palette().background));
+          style.horizontal_rail.scroller.background = Background::Color(theme.palette().primary);
+          style.vertical_rail.background = Some(Background::Color(theme.palette().background));
+          style.vertical_rail.scroller.background = Background::Color(theme.palette().primary);
+          style
+        })
         .height(Length::Fill)
+        .width(Length::Fill)
         .into()
     }
   }
