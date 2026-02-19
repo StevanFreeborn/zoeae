@@ -1,8 +1,8 @@
 use iced::{
   Background, Element, Length, Theme,
   border::{self},
-  color, highlighter,
-  widget::{container, markdown, row, scrollable, text::Wrapping, text_editor},
+  highlighter,
+  widget::{container, markdown, row, scrollable, text_editor},
 };
 
 use crate::{constants, file::File, message::Message, state::Mode};
