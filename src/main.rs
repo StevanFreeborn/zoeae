@@ -37,7 +37,22 @@ fn boot() -> (State, Task<Message>) {
     ..window::Settings::default()
   });
 
-  (state::State::new(id), open.map(Message::WindowOpened))
+  let mut state = state::State::new(id);
+  let mut tasks = vec![open.map(Message::WindowOpened)];
+
+  let args: Vec<String> = std::env::args().collect();
+
+  if args.len() > 1 {
+    let path = std::path::PathBuf::from(&args[1]);
+
+    state.set_active_file_path(path.clone());
+
+    if path.exists() {
+      tasks.push(Task::perform(io::load_file(path), Message::FileOpened));
+    }
+  }
+
+  (state, Task::batch(tasks))
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
