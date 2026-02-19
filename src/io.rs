@@ -43,3 +43,12 @@ pub async fn save_file(path: Option<PathBuf>, text: String) -> Result<PathBuf, S
     Err(err) => Err(err),
   }
 }
+
+pub async fn load_file(path: PathBuf) -> Result<(PathBuf, String), String> {
+  let content_result = fs::read_to_string(&path).await.map_err(|e| e.to_string());
+
+  match content_result {
+    Ok(content) => Ok((path, content)),
+    Err(e) => Err(e),
+  }
+}
