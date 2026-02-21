@@ -62,6 +62,7 @@ pub fn saved_file(state: &mut State, result: Result<PathBuf, String>) -> Task<Me
   match result {
     Ok(path) => {
       state.set_active_file_path(path);
+      state.set_active_file_save_status(false);
     }
     Err(_error) => {}
   };

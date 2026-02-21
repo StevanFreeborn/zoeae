@@ -37,8 +37,16 @@ impl State {
     }
   }
 
+  pub fn set_active_file_save_status(&mut self, status: bool) {
+    self.files[self.current_file].set_needs_saving(status);
+  }
+
   pub fn apply_edit(&mut self, action: text_editor::Action) {
-    self.files[self.current_file].content_mut().perform(action);
+    self.files[self.current_file].content_mut().perform(action.clone());
+    
+    if matches!(action, text_editor::Action::Edit(_)) {
+      self.files[self.current_file].set_needs_saving(true);
+    }
   }
 
   pub fn new_file(&mut self) {
