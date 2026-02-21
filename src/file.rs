@@ -15,7 +15,7 @@ pub struct File {
 impl Default for File {
   fn default() -> Self {
     File {
-      needs_saving: false,
+      needs_saving: true,
       content: text_editor::Content::new(),
       path: None,
       markdown: Vec::new(),
