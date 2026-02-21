@@ -6,6 +6,7 @@ use std::{
 use iced::widget::{markdown, text_editor};
 
 pub struct File {
+  needs_saving: bool,
   content: text_editor::Content,
   path: Option<PathBuf>,
   markdown: Vec<markdown::Item>,
@@ -14,6 +15,7 @@ pub struct File {
 impl Default for File {
   fn default() -> Self {
     File {
+      needs_saving: false,
       content: text_editor::Content::new(),
       path: None,
       markdown: Vec::new(),
@@ -27,6 +29,7 @@ impl File {
     let markdown = markdown::parse(content).collect();
 
     File {
+      needs_saving: false,
       content: text_editor_content,
       path,
       markdown,
@@ -89,5 +92,13 @@ impl File {
       .as_deref()
       .map(|p| p.to_string_lossy().to_string())
       .unwrap_or_default()
+  }
+  
+  pub fn needs_saving(&self) ->  bool {
+      self.needs_saving
+  }
+
+  pub fn set_needs_saving(&mut self, state: bool) {
+      self.needs_saving = state
   }
 }

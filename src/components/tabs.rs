@@ -10,7 +10,13 @@ pub fn view<'a>(files: &'a [File], active_index: usize) -> Element<'a, Message> 
   let tabs = files.iter().enumerate().map(|(index, file)| {
     let is_focused = index == active_index;
 
-    let label = text(file.display_name());
+    let label_text = if file.needs_saving() {
+      format!("● {}", file.display_name())
+    } else {
+      file.display_name().to_owned()
+    };
+
+    let label = text(label_text);
     let close_btn = button(text("x"))
       .padding(1)
       .on_press(Message::FileActionSelected(FileAction::Close(Some(index))));
