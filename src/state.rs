@@ -75,6 +75,7 @@ impl State {
   pub fn open_file(&mut self, path: PathBuf, content: String) {
     if let Some(index) = self.files.iter().position(|f| f.path() == Some(&path)) {
       self.files[index].set_content(&content);
+      self.files[index].set_needs_saving(false);
       self.current_file = index;
       return;
     }
