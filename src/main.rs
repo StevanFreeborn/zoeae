@@ -12,7 +12,7 @@ mod state;
 use iced::theme::Palette;
 use iced::widget::column;
 use iced::window::icon;
-use iced::{Color, Length, Theme};
+use iced::{Color, Theme};
 use iced::{Element, Subscription, Task, event};
 use iced::{keyboard, window};
 
