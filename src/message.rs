@@ -39,6 +39,7 @@ pub enum ViewAction {
   Decrease,
   Reset,
   TogglePreview,
+  ToggleWordWrap,
 }
 
 impl ViewAction {
@@ -47,6 +48,7 @@ impl ViewAction {
     ViewAction::Decrease,
     ViewAction::Reset,
     ViewAction::TogglePreview,
+    ViewAction::ToggleWordWrap,
   ];
 }
 
@@ -57,6 +59,7 @@ impl Display for ViewAction {
       ViewAction::Increase => write!(f, "Increase font"),
       ViewAction::Reset => write!(f, "Reset font"),
       ViewAction::TogglePreview => write!(f, "Toggle preview"),
+      ViewAction::ToggleWordWrap => write!(f, "Toggle word wrap"),
     }
   }
 }

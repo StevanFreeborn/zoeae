@@ -22,6 +22,7 @@ pub struct State {
   editor_font_size: u32,
   selected_file_action: Option<FileAction>,
   selected_view_action: Option<ViewAction>,
+  is_word_wrap_on: bool,
 }
 
 impl State {
@@ -33,6 +34,7 @@ impl State {
       files: vec![default_file],
       current_file: 0,
       editor_font_size: constants::DEFAULT_EDITOR_FONT_SIZE,
+      is_word_wrap_on: false,
       ..Default::default()
     }
   }
@@ -42,8 +44,10 @@ impl State {
   }
 
   pub fn apply_edit(&mut self, action: text_editor::Action) {
-    self.files[self.current_file].content_mut().perform(action.clone());
-    
+    self.files[self.current_file]
+      .content_mut()
+      .perform(action.clone());
+
     if matches!(action, text_editor::Action::Edit(_)) {
       self.files[self.current_file].set_needs_saving(true);
     }
@@ -127,6 +131,14 @@ impl State {
       }
       Mode::Preview => self.mode = Mode::Edit,
     }
+  }
+
+  pub fn toggle_word_wrap(&mut self) {
+    self.is_word_wrap_on = !self.is_word_wrap_on;
+  }
+
+  pub fn is_word_wrap_on(&self) -> bool {
+    self.is_word_wrap_on
   }
 
   pub fn files(&self) -> &[file::File] {

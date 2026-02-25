@@ -12,7 +12,7 @@ mod state;
 use iced::theme::Palette;
 use iced::widget::column;
 use iced::window::icon;
-use iced::{Color, Theme};
+use iced::{Color, Length, Theme};
 use iced::{Element, Subscription, Task, event};
 use iced::{keyboard, window};
 
@@ -84,7 +84,12 @@ fn view(state: &State, _id: iced::window::Id) -> Element<'_, Message> {
   column![
     components::tabs::view(state.files(), state.current_file_index()),
     components::action_bar::view(state.selected_file_action(), state.selected_view_action()),
-    components::editor::view(current_file, state.mode(), state.font_size()),
+    components::editor::view(
+      current_file,
+      state.mode(),
+      state.font_size(),
+      state.is_word_wrap_on()
+    ),
     components::status_bar::view(current_file),
   ]
   .into()
