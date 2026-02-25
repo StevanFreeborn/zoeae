@@ -93,12 +93,12 @@ impl File {
       .map(|p| p.to_string_lossy().to_string())
       .unwrap_or_default()
   }
-  
-  pub fn needs_saving(&self) ->  bool {
-      self.needs_saving
+
+  pub fn needs_saving(&self) -> bool {
+    self.needs_saving
   }
 
   pub fn set_needs_saving(&mut self, state: bool) {
-      self.needs_saving = state
+    self.needs_saving = state
   }
 }

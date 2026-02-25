@@ -76,6 +76,7 @@ pub fn view_action(state: &mut State, action: ViewAction) -> Task<Message> {
     ViewAction::Decrease => state.decrease_font(),
     ViewAction::Reset => state.reset_font(),
     ViewAction::TogglePreview => state.toggle_preview(),
+    ViewAction::ToggleWordWrap => state.toggle_word_wrap(),
   }
 
   Task::none()

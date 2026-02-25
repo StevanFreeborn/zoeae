@@ -65,4 +65,9 @@ pub const ALL: &[Keybinding] = &[
     modifiers: Modifiers::CTRL,
     message: Message::ViewActionSelected(ViewAction::Reset),
   },
+  Keybinding {
+    key: "z",
+    modifiers: Modifiers::ALT,
+    message: Message::ViewActionSelected(ViewAction::ToggleWordWrap),
+  },
 ];
