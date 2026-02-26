@@ -17,7 +17,7 @@ pub fn switch_tab(state: &mut State, index: usize) -> Task<Message> {
 }
 
 pub fn link_clicked(url: String) -> Task<Message> {
-  println!("Opening link: {}", url);
+  let _ = webbrowser::open(&url);
   Task::none()
 }
 
