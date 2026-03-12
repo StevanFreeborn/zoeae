@@ -2,6 +2,7 @@
 name = "zoeae"
 version = "0.0.0"
 edition = "2024"
+repository = "https://github.com/StevanFreeborn/zoeae"
 
 [dependencies]
 iced = { version = "0.14.0", features = ["image", "markdown", "highlighter", "tokio"] }
@@ -9,3 +10,7 @@ rfd = "0.17.1"
 tokio = { version ="1.49.0", features = ["fs"] }
 uuid = { version = "1.19.0", features = ["v4"] }
 webbrowser = "1.1.0"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
